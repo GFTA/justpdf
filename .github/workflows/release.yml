@@ -1,0 +1,56 @@
+name: release
+
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build and attach APKs to (e.g. v1.0.0)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build APKs
+        run: ./gradlew --no-daemon assembleDebug assembleRelease
+
+      - name: Collect + rename APKs
+        run: |
+          mkdir dist
+          for f in app/build/outputs/apk/debug/*.apk app/build/outputs/apk/release/*.apk; do
+            [ -e "$f" ] || continue
+            cp "$f" "dist/$(basename "$f")"
+          done
+          ls -lh dist
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: JustPDF ${{ github.event.inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          body: |
+            Sideload build. Grab the APK for your phone's architecture — almost
+            always **arm64-v8a**. If unsure, use the `universal` APK.
+
+            > These APKs are signed with the project debug key, not a release key.
+            > Fine for trying it out; a proper signed release comes later.
+          files: dist/*.apk
