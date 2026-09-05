@@ -28,6 +28,8 @@ class HomeViewModel(private val container: AppContainer) : ViewModel() {
     private val _state = MutableStateFlow(HomeUiState())
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
 
+    val thumbnailer get() = container.pdfThumbnailer
+
     init {
         viewModelScope.launch {
             container.recentsRepository.recents.collect { list ->

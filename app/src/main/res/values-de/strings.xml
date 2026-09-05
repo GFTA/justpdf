@@ -1,0 +1,51 @@
+<resources>
+    <string name="app_name">JustPDF</string>
+
+    <string name="tab_recent">Zuletzt</string>
+    <string name="tab_folder">Ordner</string>
+
+    <string name="open_file">PDF öffnen</string>
+    <string name="pick_folder">Ordner wählen</string>
+    <string name="settings">Einstellungen</string>
+    <string name="search">Suchen</string>
+    <string name="share">Teilen</string>
+    <string name="print">Drucken</string>
+    <string name="go_to_page">Zur Seite</string>
+
+    <string name="empty_recent_title">Noch keine Dateien</string>
+    <string name="empty_recent_body">Öffne ein PDF, dann erscheint es hier.</string>
+    <string name="empty_folder_title">Kein Ordner gewählt</string>
+    <string name="empty_folder_body">Wähle einmal einen Ordner, dann zeigt JustPDF jedes PDF darin – ganz ohne Berechtigungen.</string>
+    <string name="folder_no_pdfs">Keine PDF-Dateien in diesem Ordner.</string>
+    <string name="scanning">Suche läuft …</string>
+
+    <string name="search_hint">Im Dokument suchen</string>
+    <string name="search_no_matches">Keine Treffer</string>
+    <string name="search_matches">%1$d / %2$d</string>
+    <string name="prev_match">Vorheriger Treffer</string>
+    <string name="next_match">Nächster Treffer</string>
+    <string name="close">Schließen</string>
+    <string name="remove">Entfernen</string>
+    <string name="preview_of">Vorschau von %1$s</string>
+
+    <string name="settings_appearance">Darstellung</string>
+    <string name="settings_theme">Design</string>
+    <string name="theme_system">Wie System</string>
+    <string name="theme_light">Hell</string>
+    <string name="theme_dark">Dunkel</string>
+    <string name="settings_storage">Speicher</string>
+    <string name="settings_full_scan">Ganzes Gerät durchsuchen</string>
+    <string name="settings_full_scan_summary">Findet jedes PDF auf dem Gerät, nicht nur im gewählten Ordner. Benötigt die Berechtigung „Auf alle Dateien zugreifen“. Standardmäßig aus.</string>
+    <string name="settings_full_scan_rationale">Android bietet keine gezielte Berechtigung für Dokumente. „Auf alle Dateien zugreifen“ ist der einzige Weg, jedes PDF auf dem Gerät aufzulisten. JustPDF hat keinen Internetzugriff und lädt nie etwas hoch – das kannst du im Quellcode nachprüfen.</string>
+    <string name="settings_clear_recent">Verlauf löschen</string>
+    <string name="settings_about">Über</string>
+    <string name="about_body">JustPDF ist ein kostenloser Open-Source-PDF-Betrachter ohne Werbung, ohne Tracker und ohne Netzwerkzugriff.</string>
+    <string name="about_source">Quellcode</string>
+    <string name="about_license">Lizenz: GPL-3.0</string>
+    <string name="grant">Erlauben</string>
+    <string name="cancel">Abbrechen</string>
+
+    <string name="error_open">Dieses PDF konnte nicht geöffnet werden.</string>
+    <string name="error_render">Diese Seite konnte nicht dargestellt werden.</string>
+    <string name="page_of">Seite %1$d von %2$d</string>
+</resources>

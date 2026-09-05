@@ -25,6 +25,8 @@
     <string name="prev_match">Previous match</string>
     <string name="next_match">Next match</string>
     <string name="close">Close</string>
+    <string name="remove">Remove</string>
+    <string name="preview_of">Preview of %1$s</string>
 
     <string name="settings_appearance">Appearance</string>
     <string name="settings_theme">Theme</string>

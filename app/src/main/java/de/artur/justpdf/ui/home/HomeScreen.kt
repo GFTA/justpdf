@@ -1,55 +1,60 @@
 package de.artur.justpdf.ui.home
 
 import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
 import android.text.format.DateUtils
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.StringRes
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridScope
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.PictureAsPdf
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -58,10 +63,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import de.artur.justpdf.R
 import de.artur.justpdf.data.PdfEntry
-import de.artur.justpdf.data.RecentFile
+import de.artur.justpdf.pdf.PdfThumbnailer
 import de.artur.justpdf.ui.AppViewModelFactory
 import de.artur.justpdf.util.formatSize
 import de.artur.justpdf.util.queryUriInfo
+
+private const val THUMB_WIDTH_PX = 420
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,6 +79,7 @@ fun HomeScreen(
 ) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val thumbnailer = viewModel.thumbnailer
 
     val openFileLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
@@ -119,19 +127,17 @@ fun HomeScreen(
             )
         },
     ) { padding ->
-        LazyColumn(
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 156.dp),
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
-            contentPadding = PaddingValues(bottom = 24.dp),
+            contentPadding = PaddingValues(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
+            fullSpanItem {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Button(
                         onClick = { openFileLauncher.launch(arrayOf("application/pdf")) },
                         modifier = Modifier.weight(1f),
@@ -151,9 +157,9 @@ fun HomeScreen(
                 }
             }
 
-            sectionHeader(R.string.tab_recent)
+            fullSpanItem { SectionHeader(stringResource(R.string.tab_recent)) }
             if (state.recents.isEmpty()) {
-                item {
+                fullSpanItem {
                     EmptyHint(
                         stringResource(R.string.empty_recent_title),
                         stringResource(R.string.empty_recent_body),
@@ -161,21 +167,19 @@ fun HomeScreen(
                 }
             } else {
                 items(state.recents, key = { "recent:" + it.uri }) { rf ->
-                    RecentRow(
-                        rf = rf,
+                    PdfTile(
+                        uriString = rf.uri,
+                        name = rf.name,
+                        subtitle = DateUtils.getRelativeTimeSpanString(rf.lastOpened).toString(),
+                        thumbnailer = thumbnailer,
                         onOpen = { onOpenPdf(rf.uri, rf.name) },
                         onRemove = { viewModel.removeRecent(rf.uri) },
                     )
                 }
             }
 
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 16.dp, end = 8.dp, top = 20.dp, bottom = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+            fullSpanItem {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = stringResource(R.string.tab_folder),
                         style = MaterialTheme.typography.titleSmall,
@@ -191,30 +195,42 @@ fun HomeScreen(
             }
 
             when {
-                state.folderUri == null -> item {
+                state.folderUri == null -> fullSpanItem {
                     EmptyHint(
                         stringResource(R.string.empty_folder_title),
                         stringResource(R.string.empty_folder_body),
                     )
                 }
-                state.folderLoading -> item { LoadingRow() }
-                state.folderFiles.isEmpty() -> item {
+                state.folderLoading -> fullSpanItem { LoadingRow() }
+                state.folderFiles.isEmpty() -> fullSpanItem {
                     EmptyHint(stringResource(R.string.folder_no_pdfs), "")
                 }
                 else -> items(state.folderFiles, key = { "folder:" + it.uri }) { entry ->
-                    EntryRow(entry) { onOpenPdf(entry.uri, entry.name) }
+                    PdfTile(
+                        uriString = entry.uri,
+                        name = entry.name,
+                        subtitle = tileSubtitle(entry),
+                        thumbnailer = thumbnailer,
+                        onOpen = { onOpenPdf(entry.uri, entry.name) },
+                    )
                 }
             }
 
             if (state.fullScanEnabled) {
-                sectionHeader(R.string.settings_full_scan)
+                fullSpanItem { SectionHeader(stringResource(R.string.settings_full_scan)) }
                 when {
-                    state.scanLoading -> item { LoadingRow() }
-                    state.scanFiles.isEmpty() -> item {
+                    state.scanLoading -> fullSpanItem { LoadingRow() }
+                    state.scanFiles.isEmpty() -> fullSpanItem {
                         EmptyHint(stringResource(R.string.folder_no_pdfs), "")
                     }
                     else -> items(state.scanFiles, key = { "scan:" + it.uri }) { entry ->
-                        EntryRow(entry) { onOpenPdf(entry.uri, entry.name) }
+                        PdfTile(
+                            uriString = entry.uri,
+                            name = entry.name,
+                            subtitle = tileSubtitle(entry),
+                            thumbnailer = thumbnailer,
+                            onOpen = { onOpenPdf(entry.uri, entry.name) },
+                        )
                     }
                 }
             }
@@ -222,75 +238,103 @@ fun HomeScreen(
     }
 }
 
-private fun LazyListScope.sectionHeader(@StringRes text: Int) {
-    item {
-        Text(
-            text = stringResource(text),
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 4.dp),
-        )
-    }
+private fun tileSubtitle(entry: PdfEntry): String =
+    if (entry.sizeBytes > 0) formatSize(entry.sizeBytes) else ""
+
+private fun LazyGridScope.fullSpanItem(content: @Composable () -> Unit) {
+    item(span = { GridItemSpan(maxLineSpan) }) { content() }
 }
 
 @Composable
-private fun RecentRow(rf: RecentFile, onOpen: () -> Unit, onRemove: () -> Unit) {
-    var menuOpen by remember { mutableStateOf(false) }
-    ListItem(
-        headlineContent = { Text(rf.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        supportingContent = {
-            Text(
-                DateUtils.getRelativeTimeSpanString(rf.lastOpened).toString(),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        },
-        leadingContent = {
-            Icon(Icons.Filled.InsertDriveFile, contentDescription = null)
-        },
-        trailingContent = {
-            IconButton(onClick = { menuOpen = true }) {
-                Icon(Icons.Filled.MoreVert, contentDescription = null)
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.close)) },
-                        leadingIcon = { Icon(Icons.Filled.Close, contentDescription = null) },
-                        onClick = {
-                            menuOpen = false
-                            onRemove()
-                        },
+private fun SectionHeader(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PdfTile(
+    uriString: String,
+    name: String,
+    subtitle: String,
+    thumbnailer: PdfThumbnailer,
+    onOpen: () -> Unit,
+    onRemove: (() -> Unit)? = null,
+) {
+    val thumb by produceState<Bitmap?>(initialValue = null, uriString) {
+        value = thumbnailer.get(uriString, THUMB_WIDTH_PX)
+    }
+
+    Card(modifier = Modifier.clickable(onClick = onOpen)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(0.78f)
+                .background(Color.White),
+            contentAlignment = Alignment.Center,
+        ) {
+            val bmp = thumb
+            if (bmp != null && !bmp.isRecycled) {
+                Image(
+                    bitmap = bmp.asImageBitmap(),
+                    contentDescription = stringResource(R.string.preview_of, name),
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                    alignment = Alignment.TopCenter,
+                )
+            } else {
+                Icon(
+                    Icons.Filled.PictureAsPdf,
+                    contentDescription = null,
+                    modifier = Modifier.size(40.dp),
+                    tint = MaterialTheme.colorScheme.outline,
+                )
+            }
+            if (onRemove != null) {
+                Surface(
+                    onClick = onRemove,
+                    shape = RoundedCornerShape(50),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp)
+                        .size(28.dp),
+                ) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = stringResource(R.string.remove),
+                        modifier = Modifier.padding(5.dp),
                     )
                 }
             }
-        },
-        modifier = Modifier.clickable(onClick = onOpen),
-    )
-}
-
-@Composable
-private fun EntryRow(entry: PdfEntry, onOpen: () -> Unit) {
-    val subtitle = buildString {
-        entry.relativePath?.let { append(it) }
-        if (entry.sizeBytes > 0) {
-            if (isNotEmpty()) append("  •  ")
-            append(formatSize(entry.sizeBytes))
+        }
+        Column(modifier = Modifier.padding(8.dp)) {
+            Text(
+                text = name,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (subtitle.isNotBlank()) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
-    ListItem(
-        headlineContent = { Text(entry.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        supportingContent = {
-            if (subtitle.isNotBlank()) {
-                Text(subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        },
-        leadingContent = { Icon(Icons.Filled.PictureAsPdf, contentDescription = null) },
-        modifier = Modifier.clickable(onClick = onOpen),
-    )
 }
 
 @Composable
 private fun EmptyHint(title: String, body: String) {
-    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+    Column {
         Text(title, style = MaterialTheme.typography.bodyLarge)
         if (body.isNotBlank()) {
             Text(
@@ -305,9 +349,7 @@ private fun EmptyHint(title: String, body: String) {
 @Composable
 private fun LoadingRow() {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {

@@ -4,6 +4,7 @@ import android.content.Context
 import de.artur.justpdf.data.DocumentRepository
 import de.artur.justpdf.data.RecentsRepository
 import de.artur.justpdf.data.SettingsRepository
+import de.artur.justpdf.pdf.PdfThumbnailer
 import io.legere.pdfiumandroid.PdfiumCore
 import io.legere.pdfiumandroid.util.AlreadyClosedBehavior
 import io.legere.pdfiumandroid.util.Config
@@ -20,4 +21,5 @@ class AppContainer(context: Context) {
         // IGNORE: our render/close paths can legitimately race a page close; don't crash.
         PdfiumCore(app, Config(alreadyClosedBehavior = AlreadyClosedBehavior.IGNORE))
     }
+    val pdfThumbnailer: PdfThumbnailer by lazy { PdfThumbnailer(app, pdfiumCore) }
 }
