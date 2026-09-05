@@ -1,0 +1,1 @@
+A tiny PDF viewer with no ads, no trackers and no network access.

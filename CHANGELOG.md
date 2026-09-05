@@ -1,0 +1,18 @@
+# Changelog
+
+## [Unreleased]
+
+## [1.0.0] - 2026-09-05
+### Added
+- Open PDFs from "Open with", the system file picker, or a chosen folder (SAF).
+- Folder view listing every PDF in a picked directory, no runtime permissions.
+- Recent files list; remembers the last page per document.
+- Continuous vertical page scrolling, double-tap zoom, drag-to-pan.
+- Full-text search with match count, next/previous navigation and on-page
+  highlighting.
+- Share and print via the Android system services.
+- Optional "Scan whole device" setting (all-files access), off by default.
+- Light / dark / follow-system theme; Material You dynamic color on Android 12+.
+
+### Notably absent
+- No `INTERNET` permission. No ads. No analytics. No crash reporter.

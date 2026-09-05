@@ -1,0 +1,19 @@
+JustPDF is a small, honest PDF viewer.
+
+It has no ads, no trackers, no analytics, and it does not request the INTERNET
+permission - it cannot talk to the network at all. You can verify this in the
+manifest and in the source.
+
+Features:
+
+* Open PDFs from "Open with", the system file picker, or a folder you pick once
+* Folder view via the Storage Access Framework - no runtime permissions
+* Recent files list that remembers your last page
+* Continuous scrolling, double-tap to zoom, drag to pan
+* Full-text search with match navigation and on-page highlighting
+* Share and print using the system services, original file untouched
+
+Optional: a "Scan whole device" toggle in Settings uses all-files access to list
+every PDF on the device. It is off by default and the app works fully without it.
+
+Rendering uses a native Pdfium binding. Free software under the GPL-3.0-or-later.
