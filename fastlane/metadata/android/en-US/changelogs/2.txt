@@ -1,0 +1,2 @@
+PDFs now show as a grid of cards with a first-page preview. Added German
+translation.

@@ -1,0 +1,1 @@
+PDFs erscheinen jetzt als Kachel-Raster mit Seitenvorschau. Deutsche Übersetzung ergänzt.

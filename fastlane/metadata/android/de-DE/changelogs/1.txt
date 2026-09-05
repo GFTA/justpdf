@@ -1,0 +1,1 @@
+Erste Version. PDFs öffnen, durchsehen, lesen, durchsuchen, teilen und drucken. Keine Werbung, keine Tracker, kein Netzwerkzugriff.

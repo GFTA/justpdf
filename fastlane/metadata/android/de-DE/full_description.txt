@@ -1,0 +1,23 @@
+JustPDF ist ein kleiner, ehrlicher PDF-Betrachter.
+
+Keine Werbung, keine Tracker, keine Analyse – und die App fordert die
+INTERNET-Berechtigung nicht an, sie kann also gar nicht mit dem Netz
+sprechen. Nachprüfbar im Manifest und im Quellcode.
+
+Funktionen:
+
+* PDFs öffnen über „Öffnen mit", die System-Dateiauswahl oder einen einmal
+  gewählten Ordner
+* Ordner-Ansicht über das Storage Access Framework – ohne Laufzeit-Berechtigungen
+* Verlauf mit „zuletzt gelesene Seite"
+* Kachel-Ansicht mit Vorschaubild der ersten Seite
+* Durchgehendes Scrollen, Doppeltipp-Zoom, Ziehen zum Verschieben
+* Volltextsuche mit Treffer-Navigation und Markierung auf der Seite
+* Teilen und Drucken über die System-Dienste, Originaldatei unverändert
+
+Optional: ein Schalter „Ganzes Gerät durchsuchen" in den Einstellungen nutzt
+den Zugriff auf alle Dateien, um jedes PDF auf dem Gerät aufzulisten. Standard
+ist aus, die App funktioniert auch ohne vollständig.
+
+Darstellung über eine native Pdfium-Anbindung. Freie Software unter der
+GPL-3.0-or-later.

@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-09-06
+### Added
+- Home screen shows PDFs as a card grid with a rendered first-page preview
+  thumbnail (cached in memory and on disk).
+- German translation (`values-de`).
+
 ## [1.0.0] - 2026-09-05
 ### Added
 - Open PDFs from "Open with", the system file picker, or a chosen folder (SAF).
