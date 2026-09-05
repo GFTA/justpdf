@@ -32,6 +32,20 @@ class PdfThumbnailer(
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
     }
 
+    init {
+        // Keep the on-disk thumbnail cache bounded; runs once, off the main thread.
+        Thread {
+            runCatching {
+                val files = dir.listFiles()?.sortedByDescending { it.lastModified() } ?: return@runCatching
+                var used = 0L
+                for (f in files) {
+                    used += f.length()
+                    if (used > MAX_DISK_BYTES) f.delete()
+                }
+            }
+        }.apply { isDaemon = true; priority = Thread.MIN_PRIORITY }.start()
+    }
+
     suspend fun get(uriString: String, targetWidthPx: Int): Bitmap? = withContext(Dispatchers.IO) {
         val width = targetWidthPx.coerceIn(96, 1024)
         val key = "${sha1(uriString)}@$width"
@@ -85,6 +99,8 @@ class PdfThumbnailer(
             .joinToString("") { "%02x".format(it) }
 
     private companion object {
+        const val MAX_DISK_BYTES = 32L * 1024 * 1024
+
         fun memBudget(): Int =
             (Runtime.getRuntime().maxMemory() / 16).toInt().coerceIn(8 * 1024 * 1024, 32 * 1024 * 1024)
     }

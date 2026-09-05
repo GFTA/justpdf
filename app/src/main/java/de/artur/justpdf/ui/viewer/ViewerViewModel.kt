@@ -11,8 +11,11 @@ import de.artur.justpdf.pdf.PageBitmapCache
 import de.artur.justpdf.pdf.PdfRenderSession
 import de.artur.justpdf.pdf.SearchMatch
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -62,6 +65,20 @@ class ViewerViewModel(
     private var session: PdfRenderSession? = null
     private var searchJob: Job? = null
     private var persistJob: Job? = null
+
+    /** One-shot "scroll the pager to this page index" requests (go-to-page, search). */
+    private val _scrollToPage = MutableSharedFlow<Int>(extraBufferCapacity = 4)
+    val scrollToPage: SharedFlow<Int> = _scrollToPage.asSharedFlow()
+
+    fun requestGoToPage(pageIndex: Int) {
+        val count = _state.value.pageCount
+        if (count <= 0) return
+        _scrollToPage.tryEmit(pageIndex.coerceIn(0, count - 1))
+    }
+
+    fun removeFromRecents() {
+        viewModelScope.launch { runCatching { container.recentsRepository.remove(uriArg) } }
+    }
 
     init {
         viewModelScope.launch { openDocument() }

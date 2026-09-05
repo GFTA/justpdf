@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing tag to build and attach APKs to (e.g. v1.0.0)
+        description: Existing tag to build and attach APKs to (e.g. v1.1.0)
         required: true
 
 permissions:
@@ -29,10 +29,30 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      - name: Restore release signing config
+        env:
+          KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "No signing secrets set — release APKs will be debug-signed."
+            exit 0
+          fi
+          mkdir -p keystore
+          echo "$KEYSTORE_B64" | base64 -d > keystore/justpdf-release.jks
+          cat > keystore.properties <<EOF
+          storeFile=keystore/justpdf-release.jks
+          storePassword=$STORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+
       - name: Build APKs
         run: ./gradlew --no-daemon assembleDebug assembleRelease
 
-      - name: Collect + rename APKs
+      - name: Collect APKs
         run: |
           mkdir dist
           for f in app/build/outputs/apk/debug/*.apk app/build/outputs/apk/release/*.apk; do
@@ -40,6 +60,10 @@ jobs:
             cp "$f" "dist/$(basename "$f")"
           done
           ls -lh dist
+
+      - name: Clean up signing material
+        if: always()
+        run: rm -f keystore.properties keystore/justpdf-release.jks
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
@@ -51,6 +75,7 @@ jobs:
             Sideload build. Grab the APK for your phone's architecture — almost
             always **arm64-v8a**. If unsure, use the `universal` APK.
 
-            > These APKs are signed with the project debug key, not a release key.
-            > Fine for trying it out; a proper signed release comes later.
+            The `*-release.apk` files are signed with the project's release key
+            (SHA-256 `4656b81069ead7e7df7e87d2ad64990f9e34a3ed1eff56d925c17e98f5b16a61`).
+            The `*-debug.apk` files are debug-signed and only for quick testing.
           files: dist/*.apk

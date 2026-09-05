@@ -1,0 +1,1 @@
+Pinch-to-zoom, a "Go to page" dialog, and broken recent-list entries can now remove themselves. Release builds are now properly signed.

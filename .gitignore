@@ -20,3 +20,9 @@ local.properties
 build/
 .gradle/
 .kotlin/
+
+# release signing (never commit)
+keystore.properties
+keystore/
+*.jks
+*.p12

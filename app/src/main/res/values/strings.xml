@@ -48,4 +48,7 @@
     <string name="error_open">Could not open this PDF.</string>
     <string name="error_render">Could not render this page.</string>
     <string name="page_of">Page %1$d of %2$d</string>
+    <string name="ok">OK</string>
+    <string name="page_number">Page number</string>
+    <string name="remove_from_recent">Remove from recent list</string>
 </resources>

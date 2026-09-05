@@ -1,0 +1,28 @@
+# F-Droid build recipe for JustPDF.
+# Copy this into an fdroiddata merge request as metadata/de.artur.justpdf.yml
+# (see fdroid/README.md in this repo for the full submission steps).
+
+Categories:
+  - Reading
+License: GPL-3.0-or-later
+AuthorName: GFTA
+WebSite: https://github.com/GFTA/justpdf
+SourceCode: https://github.com/GFTA/justpdf
+IssueTracker: https://github.com/GFTA/justpdf/issues
+Changelog: https://github.com/GFTA/justpdf/blob/HEAD/CHANGELOG.md
+
+RepoType: git
+Repo: https://github.com/GFTA/justpdf
+
+Builds:
+  - versionName: 1.1.0
+    versionCode: 3
+    commit: v1.1.0
+    subdir: app
+    gradle:
+      - yes
+
+AutoUpdateMode: Version v%v
+UpdateCheckMode: Tags
+CurrentVersion: 1.1.0
+CurrentVersionCode: 3

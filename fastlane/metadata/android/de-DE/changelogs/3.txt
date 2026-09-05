@@ -1,0 +1,1 @@
+Pinch-to-zoom, "Zur Seite springen"-Dialog, und kaputte Verlaufseinträge lassen sich jetzt direkt entfernen. Release-Builds sind jetzt echt signiert.

@@ -1,13 +1,16 @@
 package de.artur.justpdf.ui.viewer
 
 import android.net.Uri
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,9 +27,11 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Numbers
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -34,8 +39,10 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -59,6 +66,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -80,6 +88,7 @@ fun ViewerScreen(
     val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
     val decodedUri = remember(rawUri) { Uri.parse(rawUri) }
+    var showGoToPage by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -95,8 +104,10 @@ fun ViewerScreen(
             } else {
                 ViewerTopBar(
                     title = state.title,
+                    canGoToPage = state.status is ViewerStatus.Ready && state.pageCount > 1,
                     onBack = onBack,
                     onSearch = viewModel::openSearch,
+                    onGoToPage = { showGoToPage = true },
                     onShare = { context.sharePdf(decodedUri, state.title) },
                     onPrint = { context.printPdf(decodedUri, state.title) },
                 )
@@ -106,27 +117,112 @@ fun ViewerScreen(
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             when (val status = state.status) {
                 is ViewerStatus.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                is ViewerStatus.Error -> Text(
-                    text = status.message,
-                    modifier = Modifier.align(Alignment.Center).padding(24.dp),
-                    color = MaterialTheme.colorScheme.error,
+                is ViewerStatus.Error -> ErrorContent(
+                    message = status.message,
+                    onRemoveFromRecent = {
+                        viewModel.removeFromRecents()
+                        onBack()
+                    },
+                    modifier = Modifier.align(Alignment.Center),
                 )
                 is ViewerStatus.Ready -> ViewerPages(state = state, viewModel = viewModel)
             }
         }
     }
+
+    if (showGoToPage && state.pageCount > 0) {
+        GoToPageDialog(
+            pageCount = state.pageCount,
+            onDismiss = { showGoToPage = false },
+            onGo = { page ->
+                showGoToPage = false
+                viewModel.requestGoToPage(page - 1)
+            },
+        )
+    }
 }
 
+@Composable
+private fun ErrorContent(
+    message: String,
+    onRemoveFromRecent: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(text = message, color = MaterialTheme.colorScheme.error)
+        TextButton(onClick = onRemoveFromRecent) {
+            Text(stringResource(R.string.remove_from_recent))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun GoToPageDialog(
+    pageCount: Int,
+    onDismiss: () -> Unit,
+    onGo: (Int) -> Unit,
+) {
+    var text by remember { mutableStateOf("") }
+    val page = text.toIntOrNull()
+    val valid = page != null && page in 1..pageCount
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.go_to_page)) },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { new -> text = new.filter { it.isDigit() }.take(6) },
+                singleLine = true,
+                label = { Text(stringResource(R.string.page_number)) },
+                supportingText = { Text("1 – $pageCount") },
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Number,
+                    imeAction = ImeAction.Go,
+                ),
+                keyboardActions = KeyboardActions(onGo = { if (valid) onGo(page!!) }),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { if (valid) onGo(page!!) }, enabled = valid) {
+                Text(stringResource(R.string.ok))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        },
+    )
+}
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ViewerPages(state: ViewerUiState, viewModel: ViewerViewModel) {
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = state.initialPage)
     val density = LocalDensity.current
 
-    // Double-tap toggles between fit-width (1x) and a 2.5x reading zoom. While zoomed,
-    // one-finger drag pans; double-tap again resets. No pinch in v1 so the gesture
-    // never competes with the list's vertical scroll.
+    // Zoom model (mirrors the official "transformable inside a scroll container" sample):
+    //  - pinch scales 1x..5x. `canPan = { scale > 1f }` keeps the gesture from stealing
+    //    one-finger vertical scrolls at 1x.
+    //  - two-finger drag pans while zoomed; double-tap toggles 1x <-> 2.5x.
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
+    var viewport by remember { mutableStateOf(Offset.Zero) }
+
+    fun clampOffset(raw: Offset, s: Float): Offset {
+        val maxX = (viewport.x * (s - 1f) / 2f).coerceAtLeast(0f)
+        val maxY = (viewport.y * (s - 1f) / 2f).coerceAtLeast(0f)
+        return Offset(raw.x.coerceIn(-maxX, maxX), raw.y.coerceIn(-maxY, maxY))
+    }
+
+    val transformState = rememberTransformableState { zoomChange, panChange, _ ->
+        val newScale = (scale * zoomChange).coerceIn(1f, 5f)
+        scale = newScale
+        offset = if (newScale <= 1.001f) Offset.Zero else clampOffset(offset + panChange, newScale)
+    }
 
     val currentPage by remember {
         derivedStateOf { listState.firstVisibleItemIndex }
@@ -138,23 +234,22 @@ private fun ViewerPages(state: ViewerUiState, viewModel: ViewerViewModel) {
         state.search.currentMatch?.let { listState.animateScrollToItem(it.pageIndex) }
     }
 
+    // Go-to-page requests from the menu.
+    LaunchedEffect(Unit) {
+        viewModel.scrollToPage.collect { listState.animateScrollToItem(it) }
+    }
+
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val baseWidthPx = with(density) { maxWidth.roundToPx() }
-        val viewportW = constraints.maxWidth.toFloat()
-        val viewportH = constraints.maxHeight.toFloat()
+        viewport = Offset(constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat())
         val renderWidthPx = (baseWidthPx * scale.coerceIn(1f, 3f)).roundToInt()
-
-        fun clampOffset(raw: Offset): Offset {
-            val maxX = (viewportW * (scale - 1f) / 2f).coerceAtLeast(0f)
-            val maxY = (viewportH * (scale - 1f) / 2f).coerceAtLeast(0f)
-            return Offset(raw.x.coerceIn(-maxX, maxX), raw.y.coerceIn(-maxY, maxY))
-        }
 
         LazyColumn(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.surfaceVariant)
+                .transformable(state = transformState, canPan = { scale > 1f })
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onDoubleTap = {
@@ -166,14 +261,6 @@ private fun ViewerPages(state: ViewerUiState, viewModel: ViewerViewModel) {
                             }
                         },
                     )
-                }
-                .pointerInput(scale) {
-                    if (scale > 1.05f) {
-                        detectDragGestures { change, drag ->
-                            offset = clampOffset(offset + drag)
-                            change.consume()
-                        }
-                    }
                 }
                 .graphicsLayer {
                     scaleX = scale
@@ -291,8 +378,10 @@ private fun HighlightOverlay(
 @Composable
 private fun ViewerTopBar(
     title: String,
+    canGoToPage: Boolean,
     onBack: () -> Unit,
     onSearch: () -> Unit,
+    onGoToPage: () -> Unit,
     onShare: () -> Unit,
     onPrint: () -> Unit,
 ) {
@@ -312,6 +401,13 @@ private fun ViewerTopBar(
                 Icon(Icons.Filled.MoreVert, contentDescription = null)
             }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                if (canGoToPage) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.go_to_page)) },
+                        leadingIcon = { Icon(Icons.Filled.Numbers, contentDescription = null) },
+                        onClick = { menu = false; onGoToPage() },
+                    )
+                }
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.share)) },
                     leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) },

@@ -71,14 +71,16 @@ cd justpdf
 Or open the folder in Android Studio (Ladybug or newer) and hit Run.
 
 CI builds a debug **and** a release APK on every push
-([Actions tab](https://github.com/GFTA/justpdf/actions)). The release build is
-currently signed with the debug key — add a real `signingConfig` in
-`app/build.gradle.kts` before publishing anywhere.
+([Actions tab](https://github.com/GFTA/justpdf/actions)). Release builds are
+signed with the project's release key when a gitignored `keystore.properties`
+(or the CI signing secrets) is present, and fall back to the debug key
+otherwise, so a fresh clone always assembles.
 
-## Known limitations (v1)
+## Known limitations
 
-- Zoom is double-tap + drag-to-pan only; pinch-to-zoom is not wired up yet because it
-  fights the scrolling list. Planned.
+- While pinch-zoomed in, one-finger drag still scrolls the list vertically;
+  horizontal panning needs two fingers (or double-tap to reset). This is the
+  standard "transformable inside a scroll container" trade-off.
 - Search highlight rectangles are best-effort; on some documents the box may be
   slightly off. Match navigation and the page jump are reliable.
 - "Scan whole device" relies on the MediaStore index; a direct filesystem walk is the
