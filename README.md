@@ -43,6 +43,19 @@ opposite of that.
   — a native (JNI) binding to Google's Pdfium. It does no networking.
 - `minSdk 24`, `targetSdk 35`.
 
+## Size
+
+Release APK, per architecture (this is what a device installs — F-Droid and Play
+both deliver a single-ABI build):
+
+| ABI | APK |
+|---|---|
+| `arm64-v8a` (almost every phone since ~2017) | ~6 MB |
+| `armeabi-v7a` (older 32-bit devices) | ~4.5 MB |
+| universal (all four ABIs, for sideloading) | ~19 MB |
+
+Nearly all of that is Pdfium's native code. The app's own code is tiny.
+
 ## Build
 
 ```bash
@@ -53,6 +66,11 @@ cd justpdf
 ```
 
 Or open the folder in Android Studio (Ladybug or newer) and hit Run.
+
+CI builds a debug **and** a release APK on every push
+([Actions tab](https://github.com/GFTA/justpdf/actions)). The release build is
+currently signed with the debug key — add a real `signingConfig` in
+`app/build.gradle.kts` before publishing anywhere.
 
 ## Known limitations (v1)
 
