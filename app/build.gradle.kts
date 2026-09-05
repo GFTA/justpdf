@@ -27,6 +27,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            // No release keystore in the repo. Sign release builds with the debug key
+            // so CI can measure the real (R8 + resource-shrunk) APK size. Replace with
+            // a real signingConfig before publishing to any store.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 

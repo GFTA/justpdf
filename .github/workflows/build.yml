@@ -26,12 +26,18 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Assemble debug APK
-        run: ./gradlew --no-daemon assembleDebug lintDebug
+      - name: Assemble APKs
+        run: ./gradlew --no-daemon assembleDebug assembleRelease lintRelease
+
+      - name: APK sizes
+        run: |
+          echo "### APK sizes" >> "$GITHUB_STEP_SUMMARY"
+          ( cd app/build/outputs/apk && find . -name '*.apk' -printf '%s\t%p\n' \
+            | awk -F'\t' '{printf "- `%s` — %.1f MB\n", $2, $1/1048576}' ) >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload APKs
         uses: actions/upload-artifact@v4
         with:
-          name: justpdf-debug
-          path: app/build/outputs/apk/debug/*.apk
+          name: justpdf-apks
+          path: app/build/outputs/apk/**/*.apk
           if-no-files-found: error
