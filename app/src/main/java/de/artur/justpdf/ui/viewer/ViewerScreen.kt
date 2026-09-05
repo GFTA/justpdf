@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import de.artur.justpdf.R
+import de.artur.justpdf.pdf.SearchMatch
 import de.artur.justpdf.ui.AppViewModelFactory
 import de.artur.justpdf.util.printPdf
 import de.artur.justpdf.util.sharePdf
