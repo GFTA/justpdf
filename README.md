@@ -15,6 +15,9 @@ opposite of that.
 - **Folder view** — pick a folder (e.g. `Download`) once via the Storage Access
   Framework; JustPDF lists every PDF inside it. No runtime permissions.
 - **Recent files** — quick access to what you opened last, remembers your last page.
+- **Grid with previews** — every list is a card grid showing a rendered first-page
+  thumbnail (cached in memory and on disk).
+- **English & German** — follows the device language.
 - **Read** — continuous vertical scrolling, double-tap to zoom, drag to pan.
 - **Search** — full-text search across the document with match navigation and
   on-page highlighting.
