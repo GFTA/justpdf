@@ -1,0 +1,13 @@
+services:
+  schiffe:
+    build: .
+    image: schiffe:latest
+    container_name: schiffe
+    restart: unless-stopped
+    ports:
+      - "${SCHIFFE_PORT:-8081}:8080"
+    volumes:
+      - schiffe-data:/data
+
+volumes:
+  schiffe-data:

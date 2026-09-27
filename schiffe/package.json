@@ -1,0 +1,17 @@
+{
+  "name": "schiffe-versenken",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Schiffe versenken im Browser für 2 bis 4 Spieler: online mit eigenen Handys oder ein Handy zum Herumreichen",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.js",
+    "build:single": "node scripts/build-single.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "qrcode-generator": "1.4.4",
+    "ws": "8.22.0"
+  }
+}

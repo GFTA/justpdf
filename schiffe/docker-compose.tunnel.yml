@@ -1,0 +1,14 @@
+# Adds Schiffe versenken to the Docker network of an existing cloudflared container, so the
+# tunnel can reach it as http://schiffe:8080. Put TUNNEL_NETWORK=<network> into .env
+# and start with:
+#   docker compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d --build
+services:
+  schiffe:
+    networks:
+      - default
+      - tunnel
+
+networks:
+  tunnel:
+    external: true
+    name: ${TUNNEL_NETWORK:?TUNNEL_NETWORK in .env setzen}

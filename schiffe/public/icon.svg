@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#1a1426"/>
+  <g transform="rotate(-8 256 256)">
+    <rect x="86" y="86" width="340" height="340" rx="40" fill="#231a33"/>
+    <g fill="#1f2350">
+      <rect x="106" y="106" width="92" height="92" rx="16"/><rect x="210" y="106" width="92" height="92" rx="16"/><rect x="314" y="106" width="92" height="92" rx="16"/>
+      <rect x="106" y="210" width="92" height="92" rx="16"/><rect x="314" y="210" width="92" height="92" rx="16"/>
+      <rect x="106" y="314" width="92" height="92" rx="16"/><rect x="210" y="314" width="92" height="92" rx="16"/><rect x="314" y="314" width="92" height="92" rx="16"/>
+    </g>
+    <path d="M152 210h208a46 46 0 0 1 0 92H152a46 46 0 0 1 0-92z" fill="#d9d2e6"/>
+    <rect x="210" y="210" width="92" height="92" rx="12" fill="#e0393e"/>
+    <path d="M232 232l48 48M280 232l-48 48" stroke="#fff" stroke-width="16" stroke-linecap="round"/>
+    <circle cx="152" cy="360" r="14" fill="#f4effb" opacity=".6"/>
+    <circle cx="360" cy="152" r="14" fill="#f4effb" opacity=".6"/>
+  </g>
+</svg>
