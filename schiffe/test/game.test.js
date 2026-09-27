@@ -12,8 +12,13 @@ function ready(S, fleets) {
 const shoot = (S, pi, target, cell) => G.act(S, pi, { t: "shoot", target, cell });
 
 test("rules, sizes and goals are normalised", () => {
-  assert.deepStrictEqual(G.normRules(), { again: true, salvo: false, touch: false, sonar: false, teams: false });
-  assert.deepStrictEqual(G.normRules({ again: false, salvo: true, bogus: 1, touch: "yes" }), { again: false, salvo: true, touch: false, sonar: false, teams: false });
+  const off = { again: true, salvo: false, touch: false, weapons: false, sonar: false, clock: false, teams: false };
+  assert.deepStrictEqual(G.normRules(), off);
+  assert.deepStrictEqual(G.normRules({ again: false, salvo: true, bogus: 1, touch: "yes" }), { ...off, again: false, salvo: true });
+  assert.strictEqual(G.normSize(5), 5);
+  assert.strictEqual(G.normSize(16), 16);
+  assert.strictEqual(G.normLevel(3), 3);
+  assert.strictEqual(G.normLevel(7), 2);
   assert.strictEqual(G.normSize(12), 12);
   assert.strictEqual(G.normSize(9), 10);
   assert.strictEqual(G.normGoal(3), 3);
@@ -28,14 +33,38 @@ test("fleet placement is checked", () => {
   assert.match(G.fleetError(10, false, [[0, 1, 2, 3, 4], [10, 11, 12, 13], [40, 41, 42], [60, 61, 62], [80, 81]]), /berühren/);
   assert.strictEqual(G.fleetError(10, true, [[0, 1, 2, 3, 4], [10, 11, 12, 13], [40, 41, 42], [60, 61, 62], [80, 81]]), null);
   assert.match(G.fleetError(10, true, [[0, 1, 2, 3, 4], [4, 14, 24, 34], [40, 41, 42], [60, 61, 62], [80, 81]]), /schon ein Schiff/);
-  assert.match(G.fleetError(10, false, [[8, 9, 10, 11, 12], [20, 21, 22, 23], [40, 41, 42], [60, 61, 62], [80, 81]]), /gerade/);
+  assert.match(G.fleetError(10, false, [[8, 9, 10, 11, 12], [20, 21, 22, 23], [40, 41, 42], [60, 61, 62], [80, 81]]), /Schiffsform/);
   assert.match(G.fleetError(10, false, FLEET.slice(0, 4).concat([[99, 100]])), /ragt/);
-  assert.deepStrictEqual(G.shipCells(10, 9, 3, true), [7, 8, 9]);
-  assert.deepStrictEqual(G.shipCells(10, 95, 2, false), [85, 95]);
-  for (const size of [8, 10, 12]) for (const touch of [false, true]) {
+  assert.deepStrictEqual(G.place(10, "L3", 0, 9, 0), [7, 8, 9]);
+  assert.deepStrictEqual(G.place(10, "L2", 1, 95, 0), [85, 95]);
+  assert.deepStrictEqual(G.place(10, "L3", 0, 5, 2), [3, 4, 5]); // grabbed at the stern
+  for (const size of [5, 8, 10, 12, 14, 16]) for (const touch of [false, true]) {
     const f = G.randomFleet(size, touch);
     assert.strictEqual(G.fleetError(size, touch, f), null, `random fleet ${size} ${touch}`);
   }
+});
+
+test("wide and diagonal ships", () => {
+  assert.deepStrictEqual(G.place(14, "W3", 0, 0, 0).sort((a, b) => a - b), [0, 1, 2, 14, 15, 16]);
+  assert.deepStrictEqual(G.place(14, "W3", 1, 0, 0).sort((a, b) => a - b), [0, 1, 14, 15, 28, 29]);
+  assert.deepStrictEqual(G.place(14, "D3", 0, 0, 0), [0, 15, 30]);
+  assert.deepStrictEqual(G.place(14, "D3", 1, 0, 0), [2, 15, 28]); // ↙ pushed inside the board
+  assert.strictEqual(G.matchKey(14, [28, 15, 2]), "D3");
+  assert.strictEqual(G.matchKey(14, [0, 1, 14, 15]), "W2");
+  assert.strictEqual(G.matchKey(14, [0, 15, 31]), null);
+  assert.strictEqual(G.orientOf(14, "D3", [2, 15, 28]), 1);
+  assert.deepStrictEqual(G.canon(14, "D3", [28, 2, 15]), [2, 15, 28]);
+  // a whole 14×14 fleet with special ships, checked and played
+  const fleet = [G.place(14, "W3", 0, 0, 0), G.place(14, "L5", 0, 70, 0), G.place(14, "L4", 0, 126, 0), G.place(14, "D3", 1, 11, 0),
+    G.place(14, "L3", 1, 150, 0), G.place(14, "L2", 0, 180, 0), G.place(14, "L2", 0, 186, 0)];
+  assert.strictEqual(G.fleetError(14, false, fleet), null);
+  assert.match(G.fleetError(14, false, fleet.slice(0, 6).concat([G.place(14, "L3", 0, 186, 0)])), /vollständig/);
+  const S = G.newGame(two(), 1, 14, { again: false });
+  ready(S, [fleet, fleet]);
+  S.cur = 0;
+  for (const c of [11, 24, 37]) { shoot(S, 0, 1, c); shoot(S, 1, 0, 195); if (S.cur === 1) S.cur = 0; }
+  assert.strictEqual(S.players[1].fleet.find((s) => s.key === "D3").sunk, true);
+  assert.match(S.log.join("\n"), /Schnellboot versenkt/);
 });
 
 test("placing, then the first player shoots", () => {
@@ -174,6 +203,63 @@ test("teams: partners cannot be shot, the team wins together", () => {
   assert.strictEqual(three.teams, false);
 });
 
+test("bomb hits a cross of five, torpedo runs along a row", () => {
+  const S = G.newGame(two(), 1, 10, { weapons: true, again: true });
+  ready(S);
+  S.cur = 0; S.shotsLeft = 1;
+  let r = G.act(S, 0, { t: "bomb", target: 1, cell: 21 }); // cross over 11, 20, 21, 22, 31
+  assert.ok(r.ok, r.error);
+  assert.strictEqual(r.events.filter((e) => e.t === "shot").length, 5);
+  assert.strictEqual(S.players[1].marks.slice(20, 23), "xxx");
+  assert.strictEqual(S.players[0].bomb, true);
+  assert.strictEqual(S.cur, 1); // special weapons never give an extra shot
+  shoot(S, 1, 0, 99);
+  assert.match(G.act(S, 0, { t: "bomb", target: 1, cell: 55 }).error, /verbraucht/);
+  r = G.act(S, 0, { t: "torpedo", target: 1, cell: 69 }); // row 6: first ship part at 60
+  assert.ok(r.ok, r.error);
+  assert.strictEqual(S.players[1].marks[60], "x");
+  S.cur = 0;
+  r = G.act(S, 0, { t: "torpedo", target: 1, cell: 90 });
+  assert.match(r.error, /verbraucht/);
+  const T = G.newGame(two(), 1, 10, { weapons: true });
+  ready(T); T.cur = 0;
+  G.act(T, 0, { t: "torpedo", target: 1, cell: 55 }); // row 5 is empty: all water
+  assert.strictEqual(T.players[1].marks.slice(50, 60), "oooooooooo");
+  assert.match(G.newGame(two(), 1, 10).rules.weapons ? "" : "aus", /aus/);
+});
+
+test("shot clock: time out fires a random shot, swiftplay always has one", () => {
+  const S = G.newGame(two(), 1, 10, { clock: true, again: false });
+  ready(S);
+  const a = S.cur;
+  assert.ok(S.deadline > Date.now());
+  assert.deepStrictEqual(G.tick(S), []);
+  assert.ok(G.nextDeadline(S) > 14000);
+  const ev = G.tick(S, S.deadline + 5000);
+  assert.strictEqual(ev[0].t, "timeout");
+  assert.ok(ev.some((e) => e.t === "shot" && e.pi === a));
+  assert.strictEqual(S.cur, 1 - a);
+  const W = G.newGame(two(), 1, 5);
+  ready(W, [G.randomFleet(5, false), G.randomFleet(5, false)]);
+  assert.strictEqual(G.view(W, 0).clockMs, 8000);
+  assert.deepStrictEqual(G.view(W, 0).fleet, ["L3", "L2", "L2"]);
+  const B = G.newGame([{ name: "A" }, { name: "B", bot: true }], 1, 10, { clock: true });
+  ready(B); B.cur = 1; G.resetClock(B);
+  assert.strictEqual(B.deadline, 0); // no clock for computer players
+});
+
+test("stats count hits, streaks and ships finished off", () => {
+  const S = G.newGame([{ name: "A" }, { name: "B" }, { name: "C" }], 1, 10, { again: false });
+  ready(S);
+  S.cur = 0; shoot(S, 0, 2, 80); // A hits C's submarine
+  S.cur = 1; shoot(S, 1, 2, 81); // B finishes it off
+  assert.strictEqual(S.players[1].sinks, 1);
+  assert.strictEqual(S.players[1].steals, 1);
+  S.cur = 0; shoot(S, 0, 1, 0); S.cur = 0; shoot(S, 0, 1, 1); S.cur = 0; shoot(S, 0, 1, 99);
+  assert.strictEqual(S.players[0].best, 3);
+  assert.strictEqual(S.players[0].missRun, 1);
+});
+
 test("giving up and skipping", () => {
   const S = G.newGame([{ name: "A" }, { name: "B" }, { name: "C" }], 1, 10);
   ready(S);
@@ -195,7 +281,7 @@ test("views hide other fleets until the round is over", () => {
   assert.ok(v0.players[0].ships);
   assert.strictEqual(v0.players[1].ships, null);
   assert.strictEqual(G.view(S, -1).players[0].ships, null);
-  assert.deepStrictEqual(v0.fleet, [4, 3, 2, 2]);
+  assert.deepStrictEqual(v0.fleet, ["L4", "L3", "L2", "L2"]);
   G.act(S, 1, { t: "giveup" });
   assert.strictEqual(S.phase, "roundEnd");
   assert.ok(G.view(S, 0).players[1].ships);
@@ -216,7 +302,7 @@ test("computer players place, aim sensibly and finish games", () => {
     assert.strictEqual(S.phase, "roundEnd");
   }
   // after a hit the bot shoots next to it
-  const S = G.newGame([{ name: "A" }, { name: "B", bot: true }], 1, 10, { again: false });
+  const S = G.newGame([{ name: "A" }, { name: "B", bot: true }], 1, 10, { again: false }, 3);
   ready(S);
   S.cur = 0;
   shoot(S, 0, 1, 99);

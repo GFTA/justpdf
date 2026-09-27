@@ -27,9 +27,21 @@ oder mehrere Computer.
 - Nicht dran? Das große Feld springt automatisch zu dem Meer, auf das gerade
   geschossen wird, bei einem Treffer auf die eigene Flotte vibriert das Handy.
 
-Spielfeld: **8×8** (4 Schiffe, schnell), **10×10** (klassisch: Schlachtschiff,
-Kreuzer, 2 Zerstörer, U-Boot) oder **12×12** (6 Schiffe). Spielziel: eine Runde,
-bis 2 oder bis 3 Siege.
+Spielfelder, jedes mit eigener Flotte:
+
+| Feld | Flotte |
+| --- | --- |
+| **5×5 Swiftplay** | Zerstörer, 2× U-Boot · 8 Sekunden pro Schuss |
+| **8×8** schnell | Kreuzer, Zerstörer, 2× U-Boot |
+| **10×10** klassisch | Schlachtschiff, Kreuzer, 2× Zerstörer, U-Boot |
+| **12×12** groß | Schlachtschiff, 2× Kreuzer, 2× Zerstörer, U-Boot |
+| **14×14** Sonderschiffe | Frachter (2×3), Schlachtschiff, Kreuzer, Schnellboot (3 schräg), Zerstörer, 2× U-Boot |
+| **16×16** riesig | Flugzeugträger (2×4), Schlachtschiff, Bohrinsel (2×2), Kreuzer, Korvette (4 schräg), Schnellboot (3 schräg), Zerstörer, U-Boot |
+
+Breite Schiffe sind 2 Felder breit, schräge liegen diagonal. Spielziel: eine Runde,
+bis 2 oder bis 3 Siege. **Computer-Gegner** in drei Stufen: Leicht (schießt viel
+zufällig), Normal, Profi (rechnet aus, wo die restlichen Schiffe am
+wahrscheinlichsten liegen).
 
 Aufstellen: Die Flotte liegt zu Beginn zufällig verteilt. Schiffe per **Drag & Drop**
 verschieben (auch aus der Leiste unter dem Feld), ein Tippen auf ein Schiff dreht es.
@@ -41,8 +53,14 @@ Schießen: Feld antippen zum Zielen, dann **Feuer!** (oder das Feld nochmal anti
 **Hausregeln** (Host im Warteraum, bzw. beim Spiel mit einem Handy aufklappbar):
 Treffer = nochmal (Standard an) · Salve (so viele Schüsse, wie man noch Schiffe hat) ·
 Schiffe dürfen sich berühren (sonst wird das Wasser rund um versenkte Schiffe
-automatisch aufgedeckt) · Sonar (einmal pro Runde ein 3×3-Feld abhorchen) ·
-Teams 2 gegen 2.
+automatisch aufgedeckt) · Spezialwaffen (pro Runde eine Bombe, die ein Kreuz aus
+5 Feldern trifft, und ein Torpedo, der von links durch eine Reihe läuft, bis er auf
+ein Schiff stößt) · Sonar (einmal pro Runde ein 3×3-Feld abhorchen) · Schussuhr
+(15 Sekunden pro Schuss, sonst Zufallsschuss) · Teams 2 gegen 2.
+
+**Am Rundenende** gibt es neben allen aufgedeckten Flotten kleine Auszeichnungen:
+Scharfschütze (beste Trefferquote), Versenker (meiste Schiffe), Aasgeier (Schiffe
+fertig versenkt, die andere angeschossen hatten), Trefferserie und Pechvogel.
 
 **Am Computer** (Desktop-Modus ab 900 px Breite): breites Layout mit großem Zielfeld
 und der eigenen Flotte groß daneben, Hover-Effekte, beim Aufstellen folgt das Schiff

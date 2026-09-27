@@ -3,7 +3,7 @@
   "use strict";
   const G = window.SchiffeGame;
   // An old cached game.js next to a new app.js: reload once without cache instead of breaking.
-  if (!G || !G.botMove || !G.placeError) {
+  if (!G || !G.botMove || !G.place || !G.SHAPES) {
     let tried = false;
     try { tried = sessionStorage.getItem("schiffe.reloaded") === "1"; sessionStorage.setItem("schiffe.reloaded", "1"); } catch (e) {}
     if (!tried) { const u = new URL(location.href); u.searchParams.set("fresh", Date.now()); location.replace(u.toString()); }
@@ -12,14 +12,16 @@
   }
   try { sessionStorage.removeItem("schiffe.reloaded"); } catch (e) {}
   const $ = (s) => document.querySelector(s);
-  const K = { local: "schiffe.v1", players: "schiffe.players", online: "schiffe.online", me: "schiffe.me", rules: "schiffe.rules", size: "schiffe.size", goal: "schiffe.goal", sound: "schiffe.sound" };
+  const K = { local: "schiffe.v2", players: "schiffe.players", online: "schiffe.online", me: "schiffe.me", rules: "schiffe.rules", size: "schiffe.size", goal: "schiffe.goal", sound: "schiffe.sound", level: "schiffe.level" };
   const store = {
     get(k) { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch (e) { return null; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
     del(k) { try { localStorage.removeItem(k); } catch (e) {} }
   };
   const BOT_MS = 1100;
-  const SIZES = [[8, "8×8", "schnell"], [10, "10×10", "klassisch"], [12, "12×12", "groß"]];
+  const SIZES = [[5, "5×5", "Swiftplay"], [8, "8×8", "schnell"], [10, "10×10", "klassisch"],
+    [12, "12×12", "groß"], [14, "14×14", "Sonderschiffe"], [16, "16×16", "riesig"]];
+  const LEVELS = [[1, "Leicht"], [2, "Normal"], [3, "Profi"]];
   const GOALS = [[1, "Eine Runde"], [2, "Bis 2 Siege"], [3, "Bis 3 Siege"]];
   const ICON = {
     person: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>',
@@ -35,8 +37,8 @@
   let focus = null;       // board shown big in the arena (player index)
   let pref = null;        // the opponent I last picked
   let followed = null;    // last shot the arena jumped to
-  let aimCell = null, aimAt = null, sonarMode = false, inflight = false;
-  let draft = null, draftKey = null, pick = null, horiz = true, lastPlaced = null, badCells = null;
+  let aimCell = null, aimAt = null, weapon = "shot", inflight = false;
+  let draft = null, draftKey = null, pick = null, orient = 0, lastPlaced = null, badCells = null;
   let anim = null;        // { target, cell, cls } for the next board render
   let peek = false;       // round over, looking at the revealed fleets
   let server = null;      // server info once found ({} when only the WebSocket answered)
@@ -46,6 +48,7 @@
   let players = store.get(K.players) || [{ name: "", bot: false }, { name: "", bot: true }];
   let sizeLocal = G.normSize(store.get(K.size) || 10), goalLocal = G.normGoal(store.get(K.goal) || 1);
   let localRules = G.normRules(store.get(K.rules));
+  let levelLocal = G.normLevel(store.get(K.level) || 2);
   let lastTurn = null;
 
   // ---------- helpers ----------
@@ -118,7 +121,9 @@
     sonar: () => { tone(1320, 0, 0.5, "sine", 0.12); tone(1320, 0.55, 0.5, "sine", 0.05); },
     bad: () => { tone(300, 0, 0.14, "sawtooth", 0.08); tone(200, 0.14, 0.24, "sawtooth", 0.08); },
     win: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.11, 0.25, "triangle", 0.16)),
-    pop: () => tone(740, 0, 0.06, "sine", 0.12)
+    pop: () => tone(740, 0, 0.06, "sine", 0.12),
+    tick: () => tone(1200, 0, 0.05, "square", 0.06),
+    torpedo: () => { noise(0, 0.9, 0.12, 400); tone(160, 0, 0.8, "sine", 0.08, 90); }
   };
   const sfx = (k) => { if (soundOn && document.visibilityState === "visible") try { SFX[k](); } catch (e) {} };
 
@@ -137,7 +142,7 @@
         else {
           sfx("sunk");
           const whose = ev.target === me ? "Dein" : `${v.players[ev.target].name}s`;
-          flash("Versenkt!", `${whose} ${G.shipName(ev.len)}`);
+          flash("Versenkt!", `${whose} ${G.shipName(ev.key)}`);
         }
         if (ev.target === me && ev.res !== "miss") {
           buzz(ev.res === "sunk" ? [80, 50, 160] : 60);
@@ -154,6 +159,12 @@
         if (ev.pi === me && s) toast(`Sonar: ${s.n === 0 ? "kein Schiffsteil" : s.n === 1 ? "1 Schiffsteil" : s.n + " Schiffsteile"} rund um ${G.cellName(v.size, s.cell)}.`);
         else toast(`${name(ev.pi)} benutzt das Sonar.`);
       }
+      if (ev.t === "timeout") { toast(ev.pi === me && mode === "online" ? "Zu langsam! Das Spiel hat für dich geschossen." : `${v.players[ev.pi].name} war zu langsam, Zufallsschuss!`); sfx("bad"); }
+      if (ev.t === "weapon") {
+        toast(`${name(ev.pi)} ${ev.kind === "bomb" ? "wirft eine Bombe!" : "schickt einen Torpedo los!"}`);
+        if (ev.kind === "torpedo") { sfx("torpedo"); if (!events.some((e) => e.t === "shot")) anim = { target: ev.target, cell: ev.cell, cls: "splash" }; }
+        else sfx("sunk");
+      }
       if (ev.t === "begin") { toast("Alle Flotten liegen bereit. Feuer frei!"); sfx("turn"); }
       if (ev.t === "ready" && ev.pi !== me) sfx("pop");
     }
@@ -164,7 +175,7 @@
     if (mode === "local") {
       const res = G.act(L, actor == null ? L.cur : actor, a);
       if (!res.ok) { toast(res.error); sfx("bad"); return false; }
-      aimCell = null; sonarMode = false;
+      aimCell = null; weapon = "shot";
       handleEvents(res.events, G.view(L, shown));
       store.set(K.local, L);
       render();
@@ -197,10 +208,10 @@
     if (!myTurn()) return;
     if (aimCell == null || !canShoot(aimAt)) { toast("Tippe zuerst auf ein Feld, um zu zielen."); return; }
     if (inflight) return;
-    if (!sonarMode && V.players[aimAt].marks[aimCell] !== ".") { toast("Da wurde schon hingeschossen."); shakeBoard(); return; }
-    const a = { t: sonarMode ? "sonar" : "shoot", target: aimAt, cell: aimCell };
+    if (weapon === "shot" && V.players[aimAt].marks[aimCell] !== ".") { toast("Da wurde schon hingeschossen."); shakeBoard(); return; }
+    const a = { t: weapon === "shot" ? "shoot" : weapon, target: aimAt, cell: aimCell };
     if (mode === "online") { inflight = true; setTimeout(() => { inflight = false; }, 3000); }
-    if (doAct(a) && mode === "online") { aimCell = null; sonarMode = false; }
+    if (doAct(a) && mode === "online") { aimCell = null; weapon = "shot"; }
   }
 
   function tapBoard(c) {
@@ -216,7 +227,7 @@
       return;
     }
     const m = V.players[focus].marks[c];
-    if (!sonarMode && m !== ".") {
+    if (weapon === "shot" && m !== ".") {
       shakeBoard();
       toast(m === "~" ? "Da ist sicher Wasser, direkt neben einem versenkten Schiff." : "Da wurde schon hingeschossen.");
       return;
@@ -228,17 +239,27 @@
   }
 
   // ---------- placing the fleet ----------
-  const isH = (cells) => cells.length < 2 || cells[1] - cells[0] === 1;
+  const ori = (s) => G.orientOf(V.size, s.key, s.cells);
+  const oriName = (key, o) => (G.SHAPES[key].kind === "diag" ? (o ? "↙" : "↘") : o ? "längs" : "quer");
+  const others = (k) => draft.filter((x, i) => i !== k && x.cells).map((x) => x.cells);
+  function toDraft(ships) {
+    const want = G.FLEETS[V.size].slice();
+    return ships.map((cells) => {
+      const key = G.matchKey(V.size, cells, [...new Set(want)]);
+      want.splice(want.indexOf(key), 1);
+      return { key, cells: G.canon(V.size, key, cells) };
+    });
+  }
   function ensureDraft() {
     const key = `${mode}:${V.round}:${V.me}:${V.size}`;
     if (draftKey === key && draft) return;
     draftKey = key;
-    const ships = V.players[V.me].ships || G.randomFleet(V.size, V.rules.touch);
-    draft = ships.map((cells) => ({ len: cells.length, cells: cells.slice() })).sort((a, b) => b.len - a.len);
-    pick = null; horiz = true; lastPlaced = null;
+    const mine = V.players[V.me].ships;
+    draft = toDraft(mine ? mine.map((s) => s.cells) : G.randomFleet(V.size, V.rules.touch));
+    pick = null; orient = 0; lastPlaced = null;
   }
   function pickUp(i) {
-    if (draft[i].cells) horiz = isH(draft[i].cells);
+    if (draft[i].cells) orient = ori(draft[i]);
     draft[i].cells = null;
     pick = i;
   }
@@ -248,9 +269,8 @@
     if (at >= 0) { turnInPlace(at); return; }
     if (pick == null) { toast("Zieh ein Schiff hierher oder tippe unten eins an."); return; }
     const s = draft[pick];
-    const cells = G.shipCells(V.size, c, s.len, horiz);
-    const others = draft.filter((x, i) => i !== pick && x.cells).map((x) => x.cells);
-    const err = G.placeError(V.size, V.rules.touch, others.concat([cells]));
+    const cells = G.place(V.size, s.key, orient, c, 0);
+    const err = G.placeError(V.size, V.rules.touch, others(pick).concat([cells]));
     if (err) {
       badCells = cells; toast(err); sfx("bad"); renderGame(); shakeBoard();
       setTimeout(() => { badCells = null; if (V && V.phase === "place") renderGame(); }, 700);
@@ -259,16 +279,15 @@
     s.cells = cells; lastPlaced = pick;
     const next = draft.findIndex((x) => !x.cells);
     pick = next >= 0 ? next : null;
-    if (pick != null) horiz = true;
+    if (pick != null) orient = 0;
     sfx("pop"); buzz(8);
     renderGame();
   }
   // turn a placed ship around its bow; if there is no room, say so
   function turnInPlace(i) {
     const s = draft[i];
-    const cells = G.shipCells(V.size, s.cells[0], s.len, !isH(s.cells));
-    const others = draft.filter((x) => x !== s && x.cells).map((x) => x.cells);
-    const err = G.placeError(V.size, V.rules.touch, others.concat([cells]));
+    const cells = G.place(V.size, s.key, 1 - ori(s), s.cells[0], 0);
+    const err = G.placeError(V.size, V.rules.touch, others(i).concat([cells]));
     if (err) { toast("Kein Platz zum Drehen. Zieh das Schiff woanders hin."); sfx("bad"); shakeBoard(); return false; }
     s.cells = cells; lastPlaced = i; sfx("pop"); buzz(8); renderGame();
     return true;
@@ -284,19 +303,13 @@
     const c = el && el.closest("#board [data-c]");
     return c ? +c.dataset.c : null;
   }
-  function dragCells(d, c) {
-    if (c == null) return null;
-    const n = V.size, r = Math.floor(c / n), q = c % n;
-    const head = d.horiz ? r * n + Math.max(0, q - d.grab) : Math.max(0, r - d.grab) * n + q;
-    return G.shipCells(n, head, draft[d.k].len, d.horiz);
-  }
+  const dragCells = (d, c) => (c == null ? null : G.place(V.size, draft[d.k].key, d.o, c, d.grab));
   function showGhost(cells) {
     for (const el of $("#board").querySelectorAll(".ghost, .bad, .lift")) el.classList.remove("ghost", "bad", "lift");
     if (!drag) return;
     if (drag.orig) for (const x of drag.orig) { const el = $(`#board [data-c="${x}"]`); if (el) el.classList.add("lift"); }
     if (!cells) return;
-    const others = draft.filter((x, i) => i !== drag.k && x.cells).map((x) => x.cells);
-    const cls = G.placeError(V.size, V.rules.touch, others.concat([cells])) ? "bad" : "ghost";
+    const cls = G.placeError(V.size, V.rules.touch, others(drag.k).concat([cells])) ? "bad" : "ghost";
     for (const x of cells) { const el = $(`#board [data-c="${x}"]`); if (el) el.classList.add(cls); }
   }
   function dragStart(e) {
@@ -311,7 +324,7 @@
     } else if (chip) k = +chip.dataset.k;
     else return;
     const s = draft[k];
-    drag = { k, grab, orig: s.cells, horiz: s.cells ? isH(s.cells) : (pick === k ? horiz : true), chip: !!chip,
+    drag = { k, grab, orig: s.cells, o: s.cells ? ori(s) : (pick === k ? orient : 0), chip: !!chip,
       pid: e.pointerId, x0: e.clientX, y0: e.clientY, active: false, src: cellEl ? $("#board") : $("#harbor") };
   }
   function dragMove(e) {
@@ -334,13 +347,12 @@
     showGhost(null);
     if (!d.active) return; // a plain tap: the click handlers take over
     dragged = true; setTimeout(() => { dragged = false; }, 0);
-    const s = draft[d.k];
-    const others = draft.filter((x, i) => i !== d.k && x.cells).map((x) => x.cells);
-    if (!cancel && d.cells && !G.placeError(V.size, V.rules.touch, others.concat([d.cells]))) {
+    const s = draft[d.k], err = d.cells && G.placeError(V.size, V.rules.touch, others(d.k).concat([d.cells]));
+    if (!cancel && d.cells && !err) {
       s.cells = d.cells; lastPlaced = d.k;
       if (pick === d.k) { const next = draft.findIndex((x) => !x.cells); pick = next >= 0 ? next : null; }
       sfx("pop"); buzz(8);
-    } else if (!cancel && d.cells) { toast(G.placeError(V.size, V.rules.touch, others.concat([d.cells]))); sfx("bad"); }
+    } else if (!cancel && d.cells) { toast(err); sfx("bad"); }
     renderGame();
   }
   document.addEventListener("pointerdown", dragStart);
@@ -350,36 +362,33 @@
   // turning while dragging (desktop: R or right click)
   function dragTurn() {
     if (!drag || !drag.active) return false;
-    drag.horiz = !drag.horiz; drag.grab = Math.min(drag.grab, draft[drag.k].len - 1);
-    if (drag.cells) { drag.cells = dragCells(drag, drag.cells[drag.grab] != null ? drag.cells[drag.grab] : drag.cells[0]); showGhost(drag.cells); }
+    const at = drag.cells && drag.cells[drag.grab];
+    drag.o = 1 - drag.o;
+    if (at != null) { drag.cells = dragCells(drag, at); showGhost(drag.cells); }
     return true;
   }
 
   $("#rotBtn").addEventListener("click", () => {
     if (!draft) return;
-    if (pick != null) { horiz = !horiz; toast(horiz ? "Das Schiff liegt jetzt quer." : "Das Schiff liegt jetzt längs."); renderGame(); return; }
+    if (pick != null) { orient = 1 - orient; toast(`Das Schiff liegt jetzt ${oriName(draft[pick].key, orient)}.`); renderGame(); return; }
     const s = lastPlaced != null && draft[lastPlaced];
     if (!s || !s.cells) { toast("Tippe zuerst ein Schiff an, dann auf Drehen."); return; }
-    const cells = G.shipCells(V.size, s.cells[0], s.len, !isH(s.cells));
-    const others = draft.filter((x) => x !== s && x.cells).map((x) => x.cells);
-    const err = G.placeError(V.size, V.rules.touch, others.concat([cells]));
-    if (err) { toast(err); sfx("bad"); shakeBoard(); return; }
-    s.cells = cells; sfx("pop"); renderGame();
+    turnInPlace(lastPlaced);
   });
   $("#randBtn").addEventListener("click", () => {
     if (!draft) return;
-    draft = G.randomFleet(V.size, V.rules.touch).map((cells) => ({ len: cells.length, cells })).sort((a, b) => b.len - a.len);
+    draft = toDraft(G.randomFleet(V.size, V.rules.touch));
     pick = null; lastPlaced = null; sfx("pop"); renderGame();
   });
   $("#clearBtn").addEventListener("click", () => {
     if (!draft) return;
     for (const s of draft) s.cells = null;
-    pick = 0; horiz = true; lastPlaced = null; renderGame();
+    pick = 0; orient = 0; lastPlaced = null; renderGame();
   });
   $("#harbor").addEventListener("click", (e) => {
     const b = e.target.closest("[data-k]"); if (!b || !draft || dragged) return;
     const i = +b.dataset.k;
-    if (pick === i) { horiz = !horiz; renderGame(); return; } // second tap turns it
+    if (pick === i) { orient = 1 - orient; renderGame(); return; } // second tap turns it
     pickUp(i); buzz(8); renderGame();
   });
   $("#readyBtn").addEventListener("click", () => {
@@ -418,6 +427,7 @@
       renderGame();
       $("#handoff").hidden = !hidden;
       if (hidden) renderHandoff();
+      scheduleClock();
     } else if (mode === "online" && R) {
       $("#handoff").hidden = true;
       if (!R.view) { V = null; showScreen("lobby"); renderLobby(); $("#roundEnd").hidden = true; }
@@ -430,22 +440,41 @@
     updateNet();
   }
 
+  const pieceHTML = (key, gone) => `<i class="${G.SHAPES[key].kind}${gone ? " gone" : ""}" style="--l:${G.SHAPES[key].len}" title="${G.shipName(key)}"></i>`;
   function fleetHTML(spec, left) {
     const rest = left.slice();
-    return [...spec].sort((a, b) => b - a).map((len) => {
-      const k = rest.indexOf(len);
+    return spec.map((key) => {
+      const k = rest.indexOf(key);
       if (k >= 0) rest.splice(k, 1);
-      return `<i style="--l:${len}"${k >= 0 ? "" : ' class="gone"'}></i>`;
+      return pieceHTML(key, k < 0);
     }).join("");
+  }
+  // "Flotte: Schlachtschiff, Kreuzer, 2× Zerstörer, …" for the settings
+  function fleetDesc(size) {
+    const count = {};
+    for (const k of G.FLEETS[size]) count[k] = (count[k] || 0) + 1;
+    const shape = (k) => { const s = G.SHAPES[k]; return s.kind === "wide" ? `2×${s.len}` : s.kind === "diag" ? `${s.len} schräg` : s.len; };
+    return "Flotte: " + Object.keys(count).map((k) => `${count[k] > 1 ? count[k] + "× " : ""}${G.shipName(k)} (${shape(k)})`).join(", ") +
+      (size === 5 ? ". Swiftplay: 8 Sekunden pro Schuss." : ".");
   }
 
   // o: { size, marks, ships, labels, buttons, aim, area, sonars, last, ghost, bad, anim }
   function boardHTML(o) {
-    const n = o.size, seg = new Map();
-    for (const cells of o.ships || []) {
-      const h = isH(cells);
-      cells.forEach((c, j) => seg.set(c, j === 0 ? (h ? "h0" : "v0") : j === cells.length - 1 ? (h ? "h1" : "v1") : ""));
+    const n = o.size, own = new Map(), link = new Map();
+    (o.ships || []).forEach((s, k) => (Array.isArray(s) ? s : s.cells).forEach((c) => own.set(c, k)));
+    // diagonal ships get a little bridge from each part to the next one
+    for (const [c, k] of own) {
+      const r = Math.floor(c / n), q = c % n;
+      if (r + 1 < n && q + 1 < n && own.get(c + n + 1) === k && own.get(c + 1) !== k) link.set(c, "d1");
+      else if (r + 1 < n && q > 0 && own.get(c + n - 1) === k && own.get(c - 1) !== k) link.set(c, "d2");
     }
+    // round the corners of a ship part where it has no neighbour of the same ship
+    const shape = (i) => {
+      const k = own.get(i), r = Math.floor(i / n), c = i % n;
+      const same = (rr, cc) => rr >= 0 && rr < n && cc >= 0 && cc < n && own.get(rr * n + cc) === k;
+      const t = same(r - 1, c), b = same(r + 1, c), l = same(r, c - 1), rt = same(r, c + 1), R = "48%", q = "8%";
+      return ` style="border-radius:${!t && !l ? R : q} ${!t && !rt ? R : q} ${!b && !rt ? R : q} ${!b && !l ? R : q}"`;
+    };
     const sn = new Map(), zone = new Set();
     for (const s of o.sonars || []) { sn.set(s.cell, s.n); zone.add(s.cell); for (const x of G.around(n, s.cell, true)) zone.add(x); }
     const tag = o.buttons ? "button" : "span";
@@ -460,7 +489,8 @@
         const i = r * n + c, m = o.marks ? o.marks[i] : ".";
         const cls = ["cell"];
         if ((r + c) % 2) cls.push("alt");
-        if (seg.has(i)) cls.push("s", seg.get(i));
+        if (own.has(i)) cls.push("s");
+        if (link.has(i)) cls.push(link.get(i));
         if (m === "o") cls.push("o"); else if (m === "~") cls.push("w"); else if (m === "x") cls.push("x"); else if (m === "#") cls.push("k");
         if (zone.has(i)) cls.push("son");
         if (o.area && o.area.has(i)) cls.push("area");
@@ -470,7 +500,7 @@
         if (o.aim === i) cls.push("aim");
         if (o.anim && o.anim.cell === i) cls.push(o.anim.cls);
         const label = o.buttons ? ` type="button" aria-label="${G.COLS[c]}${r + 1}"` : "";
-        h += `<${tag} class="${cls.join(" ").trim()}" data-c="${i}"${label}>${sn.has(i) ? `<span class="sn">${sn.get(i)}</span>` : ""}</${tag}>`;
+        h += `<${tag} class="${cls.join(" ").trim()}" data-c="${i}"${label}${own.has(i) ? shape(i) : ""}>${sn.has(i) ? `<span class="sn">${sn.get(i)}</span>` : ""}</${tag}>`;
       }
     }
     return h;
@@ -490,13 +520,67 @@
   window.addEventListener("resize", () => { if (V) layoutBoard(); });
   if (window.ResizeObserver) new ResizeObserver(() => layoutBoard()).observe($("#boardWrap"));
 
+  // special weapons: what they hit, what the buttons say
+  const WEAPON = {
+    shot: { label: "Schuss", key: "", idle: "Feuer!", fire: (c) => `Feuer auf ${cname(c)}!`, aimed: (c) => `Ziel ${cname(c)}`, hint: (n) => `Tippe auf ein Feld bei ${n}, um zu zielen.` },
+    bomb: { label: "Bombe", key: "b", idle: "Bombe", fire: (c) => `Bombe auf ${cname(c)}!`, aimed: (c) => `Bombe: Kreuz um ${cname(c)}`, hint: () => "Wähle die Mitte des Kreuzes für die Bombe." },
+    torpedo: { label: "Torpedo", key: "t", idle: "Torpedo", fire: (c) => `Torpedo durch Reihe ${Math.floor(c / V.size) + 1}!`, aimed: (c) => `Torpedo: Reihe ${Math.floor(c / V.size) + 1} von links`, hint: () => "Tippe in die Reihe, durch die der Torpedo laufen soll." },
+    sonar: { label: "Sonar", key: "s", idle: "Sonar", fire: (c) => `Sonar über ${cname(c)}`, aimed: (c) => `Sonar über ${cname(c)}`, hint: () => "Wähle die Mitte des 3×3-Felds fürs Sonar." }
+  };
+  function weapons() {
+    const P = V.players[V.me];
+    return ["shot", V.rules.weapons && !P.bomb && "bomb", V.rules.weapons && !P.torpedo && "torpedo", V.rules.sonar && !P.sonar && "sonar"].filter(Boolean);
+  }
+  function weaponArea(c) {
+    const n = V.size;
+    if (weapon === "sonar") return new Set([c].concat(G.around(n, c, true)));
+    if (weapon === "bomb") return new Set([c].concat(G.around(n, c, false)));
+    if (weapon === "torpedo") { const r = Math.floor(c / n); return new Set(Array.from({ length: n }, (_, k) => r * n + k)); }
+    return null;
+  }
+  $("#weapons").addEventListener("click", (e) => { const b = e.target.closest("[data-w]"); if (b) { weapon = b.dataset.w; renderGame(); } });
+
+  // shot clock: a bar that runs out, beeps in the last seconds when it is your shot
+  let clockEnd = 0, clockT = null, clockBeep = null;
+  function renderClock() {
+    const on = V.phase === "play" && V.clockMs > 0 && V.clock > 0 && !passing() && !V.players[V.cur].bot && (mode === "online" || V.cur === V.me);
+    $("#clock").hidden = !on;
+    clearInterval(renderClock.t);
+    if (!on) return;
+    clockEnd = Date.now() + V.clock;
+    const bar = $("#clockBar"), total = V.clockMs;
+    const step = () => {
+      const left = Math.max(0, clockEnd - Date.now());
+      bar.style.width = (left / total) * 100 + "%";
+      $("#clock").classList.toggle("urgent", left < 3000);
+      $("#clockSec").textContent = Math.ceil(left / 1000) + " s";
+      const s = Math.ceil(left / 1000);
+      if (myTurn() && left > 0 && s <= 3 && clockBeep !== `${V.turn}:${s}:${clockEnd}`) { clockBeep = `${V.turn}:${s}:${clockEnd}`; sfx("tick"); if (s === 1) buzz(30); }
+      if (!left) clearInterval(renderClock.t);
+    };
+    step(); renderClock.t = setInterval(step, 100);
+  }
+  // one-phone mode keeps the clock itself, but only while the player really holds the phone
+  function scheduleClock() {
+    clearTimeout(clockT);
+    if (mode !== "local" || !L || hidden || shown !== L.cur) return;
+    const ms = G.nextDeadline(L);
+    if (ms < 0) return;
+    clockT = setTimeout(() => {
+      if (mode !== "local" || !L || hidden || shown !== L.cur) return;
+      const ev = G.tick(L);
+      if (ev.length) { handleEvents(ev, G.view(L, shown)); store.set(K.local, L); render(); scheduleBot(); }
+      else scheduleClock();
+    }, ms + 30);
+  }
+
   function pickFocus() {
     const n = V.players.length, valid = (i) => i != null && i >= 0 && i < n;
     const foes = targets();
     const tk = `${V.round}:${V.turn}:${V.cur}:${V.me}`;
     if (tk !== pickFocus.turn) { // a new turn: my turn aims at my last target, otherwise stay put
       pickFocus.turn = tk;
-      aimCell = null; sonarMode = false;
+      aimCell = null; weapon = "shot";
       if (myTurn()) focus = foes.includes(pref) ? pref : foes[0];
     }
     const ls = V.lastShot, sk = ls ? `${V.round}:${ls.turn}:${ls.pi}:${ls.n}` : null;
@@ -551,8 +635,8 @@
       paintBoard(board, { size: V.size, ships: draft.filter((s) => s.cells).map((s) => s.cells), labels: true, buttons: true, bad: badCells });
       board.classList.remove("locked");
       $("#harbor").innerHTML = draft.map((s, i) =>
-        `<button type="button" data-k="${i}" aria-pressed="${pick === i}" class="${s.cells ? "placed" : ""}"><span class="fleet"><i style="--l:${s.len}"></i></span>` +
-        `${G.shipName(s.len)}${pick === i ? (horiz ? " · quer" : " · längs") : ""}</button>`).join("");
+        `<button type="button" data-k="${i}" aria-pressed="${pick === i}" class="${s.cells ? "placed" : ""}"><span class="fleet">${pieceHTML(s.key)}</span>` +
+        `${G.shipName(s.key)}${pick === i ? " · " + oriName(s.key, orient) : ""}</button>`).join("");
     } else if (V.phase === "place" && me < 0) { // shared phone between two players: show nothing
       $("#boardTitle").innerHTML = "<small>Aufstellen</small>Flotten";
       $("#boardFleet").innerHTML = "";
@@ -566,7 +650,7 @@
       const shoot = V.phase === "play" && canShoot(f);
       const aim = shoot && aimAt === f ? aimCell : null;
       let area = null;
-      if (aim != null && sonarMode) area = new Set([aim].concat(G.around(V.size, aim, true)));
+      if (aim != null) area = weaponArea(aim);
       const ls = V.lastShot;
       paintBoard(board, {
         size: V.size, marks: F.marks, ships: F.ships, labels: true, buttons: true, aim, area,
@@ -606,13 +690,13 @@
     anim = null;
 
     // dock: status and buttons
-    const show = { fireBtn: false, sonarBtn: false, readyBtn: false, editBtn: false, passBtn: false, resultBtn: false };
+    const show = { fireBtn: false, weapons: false, readyBtn: false, editBtn: false, passBtn: false, resultBtn: false };
     let who = "", hint = "";
     const curName = V.cur >= 0 ? V.players[V.cur].name : "";
     if (V.phase === "place") {
       if (placing) {
         who = mode === "local" ? `${P.name}, stell deine Flotte auf` : "Stell deine Flotte auf";
-        hint = pick != null ? `Tippe aufs Feld, wo der Bug hin soll (${horiz ? "quer" : "längs"}), oder zieh es hin.` : "Schiffe mit dem Finger verschieben, antippen dreht sie.";
+        hint = pick != null ? `Tippe aufs Feld, wo es hin soll (${oriName(draft[pick].key, orient)}), oder zieh es hin.` : "Schiffe ziehen zum Verschieben, antippen dreht sie.";
         show.readyBtn = true;
       } else {
         const wait = V.players.filter((p) => !p.ready).map((p) => p.name);
@@ -634,10 +718,13 @@
     } else if (myTurn()) {
       who = mode === "local" && humans().length > 1 ? `${P.name}, du bist dran` : "Du bist dran";
       if (!canShoot(focus)) hint = "Tippe oben auf einen Gegner, um auf seine Flotte zu zielen.";
-      else if (aimCell != null && aimAt === focus) hint = sonarMode ? `Sonar über ${cname(aimCell)}. Nochmal antippen oder unten starten.` : `Ziel ${cname(aimCell)}. Nochmal antippen oder Feuer!`;
-      else hint = sonarMode ? "Wähle die Mitte des 3×3-Felds fürs Sonar." : `Tippe auf ein Feld bei ${V.players[focus].name}, um zu zielen.`;
+      else if (aimCell != null && aimAt === focus) hint = `${WEAPON[weapon].aimed(aimCell)}. Nochmal antippen zum Feuern.`;
+      else hint = WEAPON[weapon].hint(V.players[focus].name);
       show.fireBtn = true;
-      show.sonarBtn = V.rules.sonar && !P.sonar;
+      const avail = weapons();
+      if (!avail.includes(weapon)) weapon = "shot";
+      show.weapons = avail.length > 1;
+      if (show.weapons) $("#weapons").innerHTML = avail.map((w) => `<button type="button" data-w="${w}" aria-pressed="${w === weapon}">${WEAPON[w].label}</button>`).join("");
     } else if (me >= 0 && P.out) {
       who = `${curName} ist dran`;
       hint = "Deine Flotte ist versenkt. Du schaust zu.";
@@ -651,10 +738,9 @@
     const fb = $("#fireBtn");
     const aimed = aimCell != null && aimAt === focus && canShoot(focus);
     fb.disabled = !aimed;
-    fb.textContent = aimed ? (sonarMode ? `Sonar über ${cname(aimCell)}` : `Feuer auf ${cname(aimCell)}!`) : sonarMode ? "Sonar" : "Feuer!";
-    fb.className = "btn " + (sonarMode ? "btn-primary" : "btn-danger");
-    $("#sonarBtn").setAttribute("aria-pressed", String(sonarMode));
-    $("#sonarBtn").textContent = sonarMode ? "Doch lieber schießen" : "Sonar einsetzen (1×)";
+    fb.textContent = aimed ? WEAPON[weapon].fire(aimCell) : WEAPON[weapon].idle;
+    fb.className = "btn " + (weapon === "shot" ? "btn-danger" : "btn-primary");
+    renderClock();
     $("#readyBtn").disabled = !!draft && placing && draft.some((s) => !s.cells);
     const salvo = V.rules.salvo && myTurn();
     $("#shots").hidden = !salvo;
@@ -665,7 +751,8 @@
     }
     $("#reactBtn").hidden = mode !== "online";
     $("#keys").innerHTML = placing ? "Schiffe mit der Maus ziehen · Klick dreht · <kbd>R</kbd> oder Rechtsklick dreht beim Ziehen"
-      : myTurn() ? `<kbd>←↑→↓</kbd> zielen · <kbd>Enter</kbd> Feuer · <kbd>1</kbd>–<kbd>${Math.max(1, n - 1)}</kbd> Gegner${show.sonarBtn ? " · <kbd>S</kbd> Sonar" : ""}` : "";
+      : myTurn() ? `<kbd>←↑→↓</kbd> zielen · <kbd>Enter</kbd> Feuer · <kbd>1</kbd>–<kbd>${Math.max(1, n - 1)}</kbd> Gegner` +
+        (show.weapons ? ` · ${weapons().filter((w) => w !== "shot").map((w) => `<kbd>${WEAPON[w].key.toUpperCase()}</kbd> ${WEAPON[w].label}`).join(" · ")}` : "") : "";
 
     // turn change feedback
     const key = `${V.round}:${V.turn}:${V.cur}`;
@@ -687,9 +774,8 @@
     if (drag) return;
     for (const el of $("#board").querySelectorAll(".ghost, .bad")) el.classList.remove("ghost", "bad");
     if (c == null || !draft || pick == null || !V || V.phase !== "place") return;
-    const cells = G.shipCells(V.size, c, draft[pick].len, horiz);
-    const others = draft.filter((x, i) => i !== pick && x.cells).map((x) => x.cells);
-    const cls = G.placeError(V.size, V.rules.touch, others.concat([cells])) ? "bad" : "ghost";
+    const cells = G.place(V.size, draft[pick].key, orient, c, 0);
+    const cls = G.placeError(V.size, V.rules.touch, others(pick).concat([cells])) ? "bad" : "ghost";
     for (const x of cells) { const el = $(`#board [data-c="${x}"]`); if (el) el.classList.add(cls); }
   }
   let hoverCell = null;
@@ -698,7 +784,7 @@
   $("#board").addEventListener("contextmenu", (e) => {
     if (V && V.phase === "place" && dragTurn()) { e.preventDefault(); return; }
     if (!V || V.phase !== "place" || pick == null) return;
-    e.preventDefault(); horiz = !horiz; renderGame(); preview(hoverCell);
+    e.preventDefault(); orient = 1 - orient; renderGame(); preview(hoverCell);
   });
 
   // desktop: arrows aim, Enter fires, 1-3 pick an opponent, S sonar, R turns a ship, Esc closes
@@ -708,7 +794,7 @@
     if (e.key === "Escape") {
       if (open) $(open).hidden = true;
       else if (V && V.phase === "place" && pick != null) { pick = null; renderGame(); }
-      else if (aimCell != null || sonarMode) { aimCell = null; sonarMode = false; if (V) renderGame(); }
+      else if (aimCell != null || weapon !== "shot") { aimCell = null; weapon = "shot"; if (V) renderGame(); }
       return;
     }
     if (open || $("#game").hidden || !$("#handoff").hidden || !$("#roundEnd").hidden || !V) return;
@@ -736,9 +822,12 @@
       e.preventDefault();
       if (aimCell != null && aimAt === focus) {
         const m = V.players[focus].marks[aimCell];
-        if (!sonarMode && m !== ".") { toast("Da wurde schon hingeschossen."); shakeBoard(); } else fire();
+        if (weapon === "shot" && m !== ".") { toast("Da wurde schon hingeschossen."); shakeBoard(); } else fire();
       }
-    } else if (k === "s" && V.rules.sonar && !V.players[V.me].sonar) { sonarMode = !sonarMode; renderGame(); }
+    } else {
+      const w = weapons().find((x) => WEAPON[x].key === k);
+      if (w) { weapon = weapon === w ? "shot" : w; renderGame(); }
+    }
   });
   $("#opps").addEventListener("click", (e) => {
     const b = e.target.closest("[data-seat]"); if (!b || !V || V.phase === "place") return;
@@ -752,7 +841,6 @@
     focus = V.me; renderGame();
   });
   $("#fireBtn").addEventListener("click", fire);
-  $("#sonarBtn").addEventListener("click", () => { sonarMode = !sonarMode; renderGame(); });
   $("#passBtn").addEventListener("click", () => { shown = -1; hidden = true; render(); });
   $("#resultBtn").addEventListener("click", () => { peek = false; render(); });
 
@@ -835,16 +923,33 @@
     }
     $("#hoBtn").textContent = `Ich bin ${p.name}, Flotte zeigen`;
   }
-  $("#hoBtn").addEventListener("click", () => { shown = localNeed(); hidden = false; render(); });
+  $("#hoBtn").addEventListener("click", () => { shown = localNeed(); hidden = false; if (L.phase === "play") G.resetClock(L); render(); });
 
   function scoreList(el, winners) {
     const ranked = V.players.map((p, i) => ({ ...p, i })).sort((a, b) => b.wins - a.wins || b.hits - a.hits);
     el.innerHTML = ranked.map((p) => {
       const q = p.shots ? Math.round((p.hits / p.shots) * 100) : 0;
       const you = p.i === V.me && mode === "online" ? " (du)" : "";
-      return `<li class="${winners.includes(p.i) ? "win" : ""}"><span>${esc(p.name)}${you}<small>${p.shots ? `${q} % Treffer` : ""}</small></span>` +
+      return `<li class="${winners.includes(p.i) ? "win" : ""}"><span>${esc(p.name)}${you}<small>${p.shots ? `${q} % Treffer · ${p.sinks} versenkt` : ""}</small></span>` +
         `<b>${p.wins} ${p.wins === 1 ? "Sieg" : "Siege"}</b></li>`;
     }).join("");
+  }
+
+  // little awards for the round, from everyone's shooting stats
+  function awards() {
+    const top = (f, min) => {
+      let bi = -1, bv = min;
+      V.players.forEach((p, i) => { const v = f(p); if (v != null && v > bv) { bv = v; bi = i; } });
+      return bi < 0 ? null : { i: bi, v: bv };
+    };
+    const out = [], nm = (i) => esc(V.players[i].name);
+    let a;
+    if ((a = top((p) => (p.shots >= 5 ? p.hits / p.shots : null), 0))) out.push(`🎯 <b>Scharfschütze</b> ${nm(a.i)} (${Math.round(a.v * 100)} %)`);
+    if ((a = top((p) => p.sinks, 0))) out.push(`⚓ <b>Versenker</b> ${nm(a.i)} (${a.v} ${a.v === 1 ? "Schiff" : "Schiffe"})`);
+    if ((a = top((p) => p.steals, 0))) out.push(`🦅 <b>Aasgeier</b> ${nm(a.i)} (${a.v}× fremde Beute fertig versenkt)`);
+    if ((a = top((p) => p.best, 2))) out.push(`🔥 <b>Trefferserie</b> ${nm(a.i)} (${a.v} in Folge)`);
+    if ((a = top((p) => p.worstMiss, 4))) out.push(`🌊 <b>Pechvogel</b> ${nm(a.i)} (${a.v}× Wasser am Stück)`);
+    return out;
   }
 
   function renderRoundEnd() {
@@ -856,6 +961,7 @@
     $("#reTitle").textContent = `${title} ${last.over ? "das Spiel" : "die Runde"}!`;
     $("#reText").textContent = (last.over ? "" : `Gespielt wird bis ${V.goal} Siege. `) + "So lagen alle Flotten:";
     scoreList($("#reScores"), ws);
+    $("#reAwards").innerHTML = awards().map((x) => `<li>${x}</li>`).join("");
     $("#reFleets").innerHTML = V.players.map((p, i) =>
       `<figure class="${ws.includes(i) ? "win" : ""}"><div class="board bare" style="--n:${V.size}">${boardHTML({ size: V.size, marks: p.marks, ships: p.ships })}</div>` +
       `<figcaption>${esc(p.name)}${i === V.me && mode === "online" ? " (du)" : ""}</figcaption></figure>`).join("");
@@ -884,7 +990,9 @@
       : "Unter dieser Adresse antwortet kein Spiel-Server. Du kannst es trotzdem versuchen, „Ein Handy für alle“ geht immer.";
     $("#localPanel").hidden = tab !== "local";
     $("#sizeLocal").innerHTML = segHTML(SIZES, sizeLocal);
+    $("#sizeHintLocal").textContent = fleetDesc(sizeLocal);
     $("#goalLocal").innerHTML = segHTML(GOALS, goalLocal);
+    $("#levelLocal").innerHTML = segHTML(LEVELS, levelLocal);
 
     const saved = store.get(K.local);
     $("#resumePanel").hidden = !(saved && saved.players);
@@ -929,7 +1037,8 @@
     $("#startOnline").hidden = !host;
     $("#startOnline").disabled = R.members.length < 2;
     $("#startOnline").textContent = R.members.length < 2 ? "Warte auf Mitspieler …" : "Spiel starten";
-    for (const [id, list, cur] of [["#sizeOnline", SIZES, R.size], ["#goalOnline", GOALS, R.goal]]) {
+    $("#sizeHintOnline").textContent = fleetDesc(R.size);
+    for (const [id, list, cur] of [["#sizeOnline", SIZES, R.size], ["#goalOnline", GOALS, R.goal], ["#levelOnline", LEVELS, R.level || 2]]) {
       const el = $(id), k = cur + ":" + host;
       if (el.dataset.k !== k) { el.dataset.k = k; el.innerHTML = segHTML(list, cur); for (const b of el.children) b.disabled = !host; }
     }
@@ -947,6 +1056,7 @@
   $("#addBot").addEventListener("click", () => wsSend({ t: "bot" }));
   $("#sizeOnline").addEventListener("click", (e) => { const b = e.target.closest("[data-v]"); if (b && R && R.you === R.host) wsSend({ t: "settings", size: +b.dataset.v }); });
   $("#goalOnline").addEventListener("click", (e) => { const b = e.target.closest("[data-v]"); if (b && R && R.you === R.host) wsSend({ t: "settings", goal: +b.dataset.v }); });
+  $("#levelOnline").addEventListener("click", (e) => { const b = e.target.closest("[data-v]"); if (b && R && R.you === R.host) wsSend({ t: "settings", level: +b.dataset.v }); });
 
   function drawQr(url) {
     const box = $("#qr");
@@ -1046,6 +1156,7 @@
   $("#modeTabs").addEventListener("click", (e) => { const b = e.target.closest("[data-tab]"); if (b) { tab = b.dataset.tab; tabTouched = true; renderHome(); } });
   $("#sizeLocal").addEventListener("click", (e) => { const b = e.target.closest("[data-v]"); if (b) { sizeLocal = +b.dataset.v; store.set(K.size, sizeLocal); renderHome(); } });
   $("#goalLocal").addEventListener("click", (e) => { const b = e.target.closest("[data-v]"); if (b) { goalLocal = +b.dataset.v; store.set(K.goal, goalLocal); renderHome(); } });
+  $("#levelLocal").addEventListener("click", (e) => { const b = e.target.closest("[data-v]"); if (b) { levelLocal = +b.dataset.v; store.set(K.level, levelLocal); renderHome(); } });
 
   $("#myName").value = store.get(K.me) || "";
   $("#soundOn").checked = soundOn;
@@ -1069,7 +1180,7 @@
   $("#createBtn").addEventListener("click", () => {
     const n = myName(); if (!n) return;
     store.del(K.online);
-    wsSend({ t: "create", name: n, goal: goalLocal, size: sizeLocal, rules: localRules });
+    wsSend({ t: "create", name: n, goal: goalLocal, size: sizeLocal, rules: localRules, level: levelLocal });
   });
 
   $("#plist").addEventListener("input", (e) => { if (e.target.dataset.i != null) { players[+e.target.dataset.i].name = e.target.value; store.set(K.players, players); } });
@@ -1092,12 +1203,13 @@
   });
   function startLocal(state) {
     L = state; mode = "local"; shown = -1; hidden = true; focus = null; pref = null; peek = false; draftKey = null;
+    if (L.phase === "play") G.resetClock(L);
     store.set(K.local, L); render(); wake(); scheduleBot();
   }
   $("#startLocal").addEventListener("click", () => {
     if (!players.some((p) => !p.bot)) { toast("Mindestens ein Mensch muss mitspielen."); return; }
     const list = players.map((p, i) => ({ name: p.name.trim() || (p.bot ? G.BOT_NAMES[i] : `Spieler ${i + 1}`), bot: p.bot }));
-    startLocal(G.newGame(list, goalLocal, sizeLocal, localRules));
+    startLocal(G.newGame(list, goalLocal, sizeLocal, localRules, levelLocal));
   });
   $("#resumeBtn").addEventListener("click", () => {
     const s = store.get(K.local); if (!s) return render();

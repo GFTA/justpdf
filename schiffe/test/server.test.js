@@ -57,10 +57,11 @@ test("create, join, place and play over WebSockets, with a computer player", asy
 
   b.send({ t: "settings", size: 8 }); // not the host: ignored
   b.send({ t: "bot" });
-  a.send({ t: "settings", size: 10, goal: 1, rules: { again: true, sonar: true } });
+  a.send({ t: "settings", size: 10, goal: 1, level: 3, rules: { again: true, sonar: true } });
   const set = await b.next((m) => m.t === "room" && m.size === 10);
-  assert.deepStrictEqual(set.rules, { again: true, salvo: false, touch: false, sonar: true, teams: false });
+  assert.deepStrictEqual(set.rules, { again: true, salvo: false, touch: false, weapons: false, sonar: true, clock: false, teams: false });
   assert.strictEqual(set.members.length, 2);
+  assert.strictEqual(set.level, 3);
 
   a.send({ t: "bot" });
   const withBot = await b.next((m) => m.t === "room" && m.members.length === 3);
@@ -85,7 +86,7 @@ test("create, join, place and play over WebSockets, with a computer player", asy
   b.send({ t: "act", a: { t: "place", ships: FLEET } });
   const go = await b.next((m) => m.t === "room" && m.view && m.view.phase === "play");
   assert.ok(go.events.some((e) => e.t === "begin"));
-  assert.deepStrictEqual(go.view.players[1].ships, FLEET);
+  assert.deepStrictEqual(go.view.players[1].ships.map((s) => s.cells), FLEET);
   assert.strictEqual(go.view.players[0].ships, null);
 
   // play until the round is over: humans fire at the computer, the computer fires back on its own

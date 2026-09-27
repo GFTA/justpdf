@@ -32,23 +32,28 @@ const TYPES = {
 const rooms = new Map();
 /** code -> Set<ws> */
 const sockets = new Map();
-/** code -> timeout for the next computer move */
+/** code -> timeout for the next computer move or the running-out shot clock */
 const botTimers = new Map();
 
 function scheduleBot(room) {
   clearTimeout(botTimers.get(room.code));
   botTimers.delete(room.code);
   const S = room.state;
-  if (!S || S.phase !== "play" || !S.players[S.cur] || !S.players[S.cur].bot) return;
-  const pi = S.cur;
+  if (!S || S.phase !== "play" || !S.players[S.cur]) return;
+  const pi = S.cur, bot = S.players[pi].bot, ms = bot ? BOT_MS : Game.nextDeadline(S);
+  if (ms < 0) return;
   botTimers.set(room.code, setTimeout(() => {
     botTimers.delete(room.code);
     if (rooms.get(room.code) !== room || room.state !== S) return;
-    const a = Game.botMove(S, pi);
-    const res = a ? Game.act(S, pi, a) : { ok: false };
-    if (res.ok) { room.touched = Date.now(); broadcast(room, res.events); saveRooms(); }
+    let events = [];
+    if (bot) {
+      const a = Game.botMove(S, pi);
+      const res = a ? Game.act(S, pi, a) : { ok: false };
+      if (res.ok) events = res.events;
+    } else events = Game.tick(S);
+    if (events.length) { room.touched = Date.now(); broadcast(room, events); saveRooms(); }
     scheduleBot(room);
-  }, BOT_MS).unref());
+  }, bot ? ms : ms + 30).unref());
 }
 
 function loadRooms() {
@@ -93,7 +98,7 @@ function broadcast(room, events) {
     if (ws.pid == null) continue;
     send(ws, {
       t: "room", code: room.code, you: ws.pid, host: room.host, goal: room.goal, size: room.size, rules: room.rules, members,
-      view: room.state ? Game.view(room.state, ws.pid) : null, events: events || []
+      level: room.level || 2, view: room.state ? Game.view(room.state, ws.pid) : null, events: events || []
     });
   }
 }
@@ -144,7 +149,7 @@ function handle(ws, msg) {
       if (!name) return err("Bitte gib deinen Namen ein.");
       if (rooms.size >= MAX_ROOMS) return err("Der Server ist voll. Versuch es später nochmal.");
       const r = {
-        code: newCode(), host: 0, goal: Game.normGoal(msg.goal), size: Game.normSize(msg.size), rules: Game.normRules(msg.rules),
+        code: newCode(), host: 0, goal: Game.normGoal(msg.goal), size: Game.normSize(msg.size), rules: Game.normRules(msg.rules), level: Game.normLevel(msg.level),
         members: [{ name, secret: crypto.randomUUID() }], state: null, touched: Date.now()
       };
       rooms.set(r.code, r);
@@ -211,6 +216,7 @@ function handle(ws, msg) {
       if (msg.rules) room.rules = Game.normRules(msg.rules);
       if (msg.goal != null) room.goal = Game.normGoal(msg.goal);
       if (msg.size != null) room.size = Game.normSize(msg.size);
+      if (msg.level != null) room.level = Game.normLevel(msg.level);
       broadcast(room); saveRooms();
       return;
     }
@@ -219,7 +225,7 @@ function handle(ws, msg) {
       if (!isHost) return err("Nur wer den Raum erstellt hat, kann starten.");
       if (room.state) return;
       if (room.members.length < 2) return err("Es braucht mindestens 2 Spieler. Hol dir sonst einen Computer-Gegner dazu.");
-      room.state = Game.newGame(room.members.map((m) => ({ name: m.name, bot: m.bot })), room.goal, room.size, room.rules);
+      room.state = Game.newGame(room.members.map((m) => ({ name: m.name, bot: m.bot })), room.goal, room.size, room.rules, room.level);
       broadcast(room); saveRooms(); scheduleBot(room);
       return;
     }
@@ -227,8 +233,10 @@ function handle(ws, msg) {
       if (!room || !room.state) return;
       const a = msg.a || {};
       if (a.t === "skip" && !isHost) return err("Nur der Host kann Spieler überspringen.");
+      const expired = Game.tick(room.state); // a shot clock that ran out goes first
+      if (expired.length) { broadcast(room, expired); saveRooms(); }
       const res = apply(room, ws.pid, a);
-      if (!res.ok) err(res.error);
+      if (!res.ok) { err(res.error); if (expired.length) scheduleBot(room); }
       return;
     }
     case "react": { // emoji for everyone at the table, at most one per second

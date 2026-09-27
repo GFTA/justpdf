@@ -143,6 +143,10 @@ button.cell{cursor:crosshair}
 .cell.last{z-index:1;box-shadow:0 0 0 2px #fff}
 .cell.ghost{background:rgba(242,194,48,.35);box-shadow:inset 0 0 0 1.5px var(--accent)}
 .cell.bad{background:rgba(224,57,62,.45);box-shadow:inset 0 0 0 1.5px var(--red)}
+.cell.s{--hc:var(--hull)} .cell.s.x{--hc:var(--red)} .cell.k.s{--hc:#7e3444}
+.cell.d1::before,.cell.d2::before{content:"";position:absolute;left:50%;top:50%;width:150%;height:26%;background:var(--hc);border-radius:3px;
+  transform-origin:0 50%;transform:translateY(-50%) rotate(45deg);z-index:0;pointer-events:none}
+.cell.d2::before{transform:translateY(-50%) rotate(135deg)}
 .cell.lift{opacity:.35}
 .board.placing{touch-action:none}
 .board.placing .cell.s{cursor:grab}
@@ -158,6 +162,9 @@ button.cell{cursor:crosshair}
 /* fleet pills: remaining ships as little hulls */
 .fleet{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
 .fleet i{display:block;height:7px;width:calc(var(--l) * 7px);border-radius:4px;background:var(--hull)}
+.fleet i.wide{height:14px;border-radius:4px}
+.fleet i.diag{transform:skewX(-35deg);background:repeating-linear-gradient(90deg,var(--hull) 0 5px,transparent 5px 7px)}
+.fleet i.diag.gone{background:repeating-linear-gradient(90deg,var(--wreck) 0 5px,transparent 5px 7px)}
 .fleet i.gone{background:var(--wreck);opacity:.8;position:relative}
 .fleet i.gone::after{content:"";position:absolute;left:-2px;right:-2px;top:3px;height:1.5px;background:var(--red)}
 
@@ -194,6 +201,7 @@ button.cell{cursor:crosshair}
 .harbor::-webkit-scrollbar{display:none}
 .harbor button{flex:none;border:0;border-radius:12px;padding:7px 9px;white-space:nowrap;background:var(--bg2);box-shadow:inset 0 0 0 1.5px var(--line);display:flex;flex-direction:column;align-items:center;gap:5px;font-size:11px;font-weight:800;color:var(--muted)}
 .harbor button .fleet i{height:9px;width:calc(var(--l) * 9px)}
+.harbor button .fleet i.wide{height:18px}
 .harbor button.placed{opacity:.55}
 .harbor button.placed .fleet i{background:var(--muted)}
 .harbor button[aria-pressed="true"]{background:var(--surface);box-shadow:inset 0 0 0 2px var(--accent);color:var(--text);opacity:1}
@@ -212,6 +220,9 @@ button.cell{cursor:crosshair}
 @keyframes dockhit{0%,100%{background:var(--bg2)}30%{background:#4a1a26}}
 .mine{flex:none;border:0;padding:0;background:none;display:flex;flex-direction:column;gap:6px;align-items:stretch;border-radius:12px}
 .mine .board{--bs:min(31vw,148px)}
+.mine{width:min(31vw,148px)}
+.mine .cap{flex-wrap:wrap;row-gap:4px}
+.mine .cap .fleet{flex-wrap:wrap}
 .mine.sel .board{box-shadow:inset 0 0 0 1.5px #fff}
 .mine .cap{display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
 .mine .fleet i{height:5px;width:calc(var(--l) * 4px)}
@@ -221,7 +232,17 @@ button.cell{cursor:crosshair}
 .who small{display:block;color:var(--muted);font-size:13px;line-height:1.3;margin-top:3px}
 .acts{display:flex;flex-direction:column;gap:8px}
 .acts .btn{padding:12px 12px;font-size:15px}
-#sonarBtn[aria-pressed="true"]{background:var(--accent);color:#231a05;box-shadow:0 3px 0 #b78d12}
+.weapons{width:100%;max-width:480px;flex:none;display:flex;gap:6px;background:var(--bg);padding:4px;border-radius:12px;box-shadow:inset 0 0 0 1.5px var(--line)}
+.weapons button{flex:1;border:0;border-radius:9px;padding:8px 4px;background:transparent;font-weight:700;font-size:13px;color:var(--muted)}
+.weapons button[aria-pressed="true"]{background:var(--surface);color:var(--text);box-shadow:inset 0 0 0 1.5px var(--accent)}
+.clock{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:800;font-variant-numeric:tabular-nums}
+.clock .track{flex:1;height:8px;border-radius:4px;background:var(--line);overflow:hidden}
+.clock i{display:block;height:100%;width:100%;background:var(--accent);border-radius:4px}
+.clock.urgent i{background:var(--red)}
+.clock.urgent{color:var(--red);animation:blink .5s steps(2) infinite}
+.awards{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;font-size:14px}
+.awards li{padding:8px 12px;border-radius:12px;background:var(--bg);box-shadow:inset 0 0 0 1px var(--line)}
+.awards:empty{display:none}
 .shots{display:flex;gap:4px;align-items:center}
 .shots i{width:10px;height:10px;border-radius:50%;background:var(--accent)}
 .shots i.used{background:var(--line)}
@@ -326,6 +347,8 @@ button.cell{cursor:crosshair}
   .dock.myturn{box-shadow:inset 0 0 0 2px var(--accent)}
   .dock.placing{margin-top:48px}
   .mine .board{--bs:324px}
+  .mine{width:324px}
+  .weapons{max-width:640px}
   .mine .veil{--bs:324px}
   .mine .fleet i{height:6px;width:calc(var(--l) * 6px)}
   .who b{font-size:20px}
@@ -387,8 +410,11 @@ button.cell{cursor:crosshair}
       <p class="hint">Tippe auf <b>Mensch</b>, um daraus einen Computer-Gegner zu machen. Allein gegen den Computer geht auch.</p>
       <div class="label">Spielfeld</div>
       <div class="seg" id="sizeLocal" role="group" aria-label="Spielfeld"></div>
+      <p class="hint" id="sizeHintLocal"></p>
       <div class="label">Spielziel</div>
       <div class="seg" id="goalLocal" role="group" aria-label="Spielziel"></div>
+      <div class="label">Computer-Gegner</div>
+      <div class="seg" id="levelLocal" role="group" aria-label="Stärke der Computer-Gegner"></div>
       <details class="houserules">
         <summary><span class="label">Hausregeln</span><span class="rules-sum" id="rulesLocalSum"></span></summary>
         <div class="rules-list" id="rulesLocal"></div>
@@ -418,8 +444,11 @@ button.cell{cursor:crosshair}
     <div class="panel">
       <div class="label">Spielfeld</div>
       <div class="seg" id="sizeOnline" role="group" aria-label="Spielfeld"></div>
+      <p class="hint" id="sizeHintOnline"></p>
       <div class="label">Spielziel</div>
       <div class="seg" id="goalOnline" role="group" aria-label="Spielziel"></div>
+      <div class="label">Computer-Gegner</div>
+      <div class="seg" id="levelOnline" role="group" aria-label="Stärke der Computer-Gegner"></div>
     </div>
     <details class="houserules" id="rulesLobbyBox">
       <summary><span class="label">Hausregeln</span><span class="rules-sum" id="rulesLobbySum"></span></summary>
@@ -451,6 +480,7 @@ button.cell{cursor:crosshair}
     <div class="arena">
       <div class="bhead"><div class="btitle" id="boardTitle"></div><div class="fleet" id="boardFleet"></div></div>
       <div class="board-wrap" id="boardWrap"><div class="board" id="board"></div></div>
+      <div class="weapons" id="weapons" role="group" aria-label="Waffe" hidden></div>
       <div class="harbor" id="harbor" hidden></div>
       <div class="placebar" id="placeBar" hidden>
         <button class="btn" id="rotBtn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v5h-5"/></svg>Drehen</button>
@@ -469,9 +499,9 @@ button.cell{cursor:crosshair}
       <div class="dstat">
         <div class="who"><b id="whoName"></b><small id="whoHint"></small></div>
         <div class="shots" id="shots" hidden></div>
+        <div class="clock" id="clock" hidden><span class="track"><i id="clockBar"></i></span><span id="clockSec"></span></div>
         <div class="acts">
           <button class="btn btn-primary" id="fireBtn" type="button" hidden>Feuer!</button>
-          <button class="btn" id="sonarBtn" type="button" aria-pressed="false" hidden>Sonar</button>
           <button class="btn btn-primary" id="readyBtn" type="button" hidden>Fertig, Flotte steht</button>
           <button class="btn" id="editBtn" type="button" hidden>Flotte ändern</button>
           <button class="btn btn-primary" id="passBtn" type="button" hidden></button>
@@ -499,6 +529,7 @@ button.cell{cursor:crosshair}
     <div class="fleets" id="reFleets"></div>
     <div class="legend"><span><i class="cell s"></i>nicht gefunden</span><span><i class="cell s x"></i>getroffen</span><span><i class="cell k s"></i>versenkt</span><span><i class="cell o"></i>Wasser</span></div>
     <ol class="scores" id="reScores"></ol>
+    <ul class="awards" id="reAwards"></ul>
     <button class="btn btn-primary btn-block" id="reBtn" type="button"></button>
     <button class="btn btn-block" id="reLook" type="button">Flotten groß ansehen</button>
     <button class="btn btn-ghost btn-block" id="reBack" type="button"></button>
@@ -517,6 +548,9 @@ button.cell{cursor:crosshair}
           <li>Wer dran ist, tippt oben auf einen Gegner, zielt auf ein Feld und drückt <b>Feuer!</b> (oder tippt das Feld ein zweites Mal an).</li>
           <li><b>Wasser</b> ist ein weißer Punkt, <b>Treffer</b> ein rotes Kreuz. Sind alle Teile eines Schiffs getroffen, ist es <b>versenkt</b>, und alle erfahren, welches Schiff es war.</li>
           <li>Alle Schüsse sind für alle sichtbar. Du kannst also auch ein Schiff fertig versenken, das jemand anderes angeschossen hat.</li>
+          <li>Ab 14×14 gibt es <b>Sonderschiffe</b>: breite (2 Felder breit, z. B. Frachter und Flugzeugträger) und schräge (Schnellboot, Korvette). Beim Schräg-Schiff liegen die Teile diagonal hintereinander.</li>
+          <li><b>5×5 Swiftplay</b>: drei kleine Schiffe und 8 Sekunden pro Schuss. Wer zu lange wartet, bekommt einen Zufallsschuss.</li>
+          <li><b>Spezialwaffen</b> (Hausregel): einmal pro Runde eine Bombe, die ein Kreuz aus 5 Feldern trifft, und ein Torpedo, der von links durch eine Reihe läuft, bis er auf ein Schiff stößt.</li>
           <li>Wessen Flotte komplett versenkt ist, scheidet aus. Wer als Letzter noch Schiffe hat, gewinnt die Runde, im Team gewinnt ihr zusammen.</li>
           <li>Am Computer: Feld anklicken zum Zielen, <b>Pfeiltasten</b> bewegen das Fadenkreuz, <b>Enter</b> feuert, <b>1–3</b> wählt den Gegner, <b>S</b> schaltet das Sonar um. Beim Aufstellen dreht <b>R</b> oder ein Rechtsklick das Schiff. <b>Esc</b> schließt Fenster.</li>
           <li>Hausregeln wie „Treffer = nochmal“, Salve oder Sonar legt der Host im Warteraum fest. Welche gelten, steht unter diesem Abschnitt.</li>
