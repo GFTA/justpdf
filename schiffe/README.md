@@ -31,8 +31,11 @@ Spielfeld: **8×8** (4 Schiffe, schnell), **10×10** (klassisch: Schlachtschiff,
 Kreuzer, 2 Zerstörer, U-Boot) oder **12×12** (6 Schiffe). Spielziel: eine Runde,
 bis 2 oder bis 3 Siege.
 
-Aufstellen: Die Flotte liegt zu Beginn zufällig verteilt. Schiff antippen, dann das
-Feld, wo der Bug hin soll; **Drehen**, **Zufällig** und **Leeren** helfen.
+Aufstellen: Die Flotte liegt zu Beginn zufällig verteilt. Schiffe per **Drag & Drop**
+verschieben (auch aus der Leiste unter dem Feld), ein Tippen auf ein Schiff dreht es.
+Gelb zeigt, wo es landet, Rot, dass es nicht passt. **Drehen**, **Zufällig** und
+**Leeren** helfen. Am Ende der Runde zeigt die Übersicht alle Meere mit allen Schiffen,
+auch die nie gefundenen der Gegner.
 Schießen: Feld antippen zum Zielen, dann **Feuer!** (oder das Feld nochmal antippen).
 
 **Hausregeln** (Host im Warteraum, bzw. beim Spiel mit einem Handy aufklappbar):

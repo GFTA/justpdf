@@ -245,16 +245,13 @@
   function placeTap(c) {
     if (!draft || V.me < 0 || V.players[V.me].ready) return;
     const at = draft.findIndex((s) => s.cells && s.cells.includes(c));
-    if (pick == null) {
-      if (at >= 0) { pickUp(at); buzz(8); } else toast("Tippe zuerst unten ein Schiff an.");
-      renderGame(); return;
-    }
+    if (at >= 0) { turnInPlace(at); return; }
+    if (pick == null) { toast("Zieh ein Schiff hierher oder tippe unten eins an."); return; }
     const s = draft[pick];
     const cells = G.shipCells(V.size, c, s.len, horiz);
     const others = draft.filter((x, i) => i !== pick && x.cells).map((x) => x.cells);
     const err = G.placeError(V.size, V.rules.touch, others.concat([cells]));
     if (err) {
-      if (at >= 0) { pickUp(at); renderGame(); return; } // tapped another ship: take that one instead
       badCells = cells; toast(err); sfx("bad"); renderGame(); shakeBoard();
       setTimeout(() => { badCells = null; if (V && V.phase === "place") renderGame(); }, 700);
       return;
@@ -266,6 +263,98 @@
     sfx("pop"); buzz(8);
     renderGame();
   }
+  // turn a placed ship around its bow; if there is no room, say so
+  function turnInPlace(i) {
+    const s = draft[i];
+    const cells = G.shipCells(V.size, s.cells[0], s.len, !isH(s.cells));
+    const others = draft.filter((x) => x !== s && x.cells).map((x) => x.cells);
+    const err = G.placeError(V.size, V.rules.touch, others.concat([cells]));
+    if (err) { toast("Kein Platz zum Drehen. Zieh das Schiff woanders hin."); sfx("bad"); shakeBoard(); return false; }
+    s.cells = cells; lastPlaced = i; sfx("pop"); buzz(8); renderGame();
+    return true;
+  }
+
+  // ---------- drag and drop while placing ----------
+  // A ship from the board or the harbour follows the finger; the cell under it shows
+  // where it would land (yellow) or that it does not fit (red). The board is never
+  // re-rendered during a drag, so iOS keeps sending the pointer events.
+  let drag = null, dragged = false;
+  function cellAt(x, y) {
+    const el = document.elementFromPoint(x, y);
+    const c = el && el.closest("#board [data-c]");
+    return c ? +c.dataset.c : null;
+  }
+  function dragCells(d, c) {
+    if (c == null) return null;
+    const n = V.size, r = Math.floor(c / n), q = c % n;
+    const head = d.horiz ? r * n + Math.max(0, q - d.grab) : Math.max(0, r - d.grab) * n + q;
+    return G.shipCells(n, head, draft[d.k].len, d.horiz);
+  }
+  function showGhost(cells) {
+    for (const el of $("#board").querySelectorAll(".ghost, .bad, .lift")) el.classList.remove("ghost", "bad", "lift");
+    if (!drag) return;
+    if (drag.orig) for (const x of drag.orig) { const el = $(`#board [data-c="${x}"]`); if (el) el.classList.add("lift"); }
+    if (!cells) return;
+    const others = draft.filter((x, i) => i !== drag.k && x.cells).map((x) => x.cells);
+    const cls = G.placeError(V.size, V.rules.touch, others.concat([cells])) ? "bad" : "ghost";
+    for (const x of cells) { const el = $(`#board [data-c="${x}"]`); if (el) el.classList.add(cls); }
+  }
+  function dragStart(e) {
+    if (e.button > 0 || !V || V.phase !== "place" || !draft || V.me < 0 || V.players[V.me].ready) return;
+    const cellEl = e.target.closest("#board [data-c]"), chip = e.target.closest("#harbor [data-k]");
+    let k, grab = 0;
+    if (cellEl) {
+      const c = +cellEl.dataset.c;
+      k = draft.findIndex((s) => s.cells && s.cells.includes(c));
+      if (k < 0) return;
+      grab = draft[k].cells.indexOf(c);
+    } else if (chip) k = +chip.dataset.k;
+    else return;
+    const s = draft[k];
+    drag = { k, grab, orig: s.cells, horiz: s.cells ? isH(s.cells) : (pick === k ? horiz : true), chip: !!chip,
+      pid: e.pointerId, x0: e.clientX, y0: e.clientY, active: false, src: cellEl ? $("#board") : $("#harbor") };
+  }
+  function dragMove(e) {
+    if (!drag || e.pointerId !== drag.pid) return;
+    const dx = e.clientX - drag.x0, dy = e.clientY - drag.y0;
+    if (!drag.active) {
+      if (Math.hypot(dx, dy) < 8) return;
+      if (drag.chip && Math.abs(dx) > Math.abs(dy) * 1.2) { drag = null; return; } // sideways: scroll the harbour
+      drag.active = true;
+      try { drag.src.setPointerCapture(drag.pid); } catch (err) {}
+      buzz(10);
+    }
+    e.preventDefault();
+    drag.cells = dragCells(drag, cellAt(e.clientX, e.clientY));
+    showGhost(drag.cells);
+  }
+  function dragEnd(e, cancel) {
+    if (!drag || e.pointerId !== drag.pid) return;
+    const d = drag; drag = null;
+    showGhost(null);
+    if (!d.active) return; // a plain tap: the click handlers take over
+    dragged = true; setTimeout(() => { dragged = false; }, 0);
+    const s = draft[d.k];
+    const others = draft.filter((x, i) => i !== d.k && x.cells).map((x) => x.cells);
+    if (!cancel && d.cells && !G.placeError(V.size, V.rules.touch, others.concat([d.cells]))) {
+      s.cells = d.cells; lastPlaced = d.k;
+      if (pick === d.k) { const next = draft.findIndex((x) => !x.cells); pick = next >= 0 ? next : null; }
+      sfx("pop"); buzz(8);
+    } else if (!cancel && d.cells) { toast(G.placeError(V.size, V.rules.touch, others.concat([d.cells]))); sfx("bad"); }
+    renderGame();
+  }
+  document.addEventListener("pointerdown", dragStart);
+  window.addEventListener("pointermove", dragMove, { passive: false });
+  window.addEventListener("pointerup", (e) => dragEnd(e, false));
+  window.addEventListener("pointercancel", (e) => dragEnd(e, true));
+  // turning while dragging (desktop: R or right click)
+  function dragTurn() {
+    if (!drag || !drag.active) return false;
+    drag.horiz = !drag.horiz; drag.grab = Math.min(drag.grab, draft[drag.k].len - 1);
+    if (drag.cells) { drag.cells = dragCells(drag, drag.cells[drag.grab] != null ? drag.cells[drag.grab] : drag.cells[0]); showGhost(drag.cells); }
+    return true;
+  }
+
   $("#rotBtn").addEventListener("click", () => {
     if (!draft) return;
     if (pick != null) { horiz = !horiz; toast(horiz ? "Das Schiff liegt jetzt quer." : "Das Schiff liegt jetzt längs."); renderGame(); return; }
@@ -288,7 +377,7 @@
     pick = 0; horiz = true; lastPlaced = null; renderGame();
   });
   $("#harbor").addEventListener("click", (e) => {
-    const b = e.target.closest("[data-k]"); if (!b || !draft) return;
+    const b = e.target.closest("[data-k]"); if (!b || !draft || dragged) return;
     const i = +b.dataset.k;
     if (pick === i) { horiz = !horiz; renderGame(); return; } // second tap turns it
     pickUp(i); buzz(8); renderGame();
@@ -486,6 +575,7 @@
       });
       board.classList.toggle("locked", !shoot);
     }
+    board.classList.toggle("placing", placing);
     layoutBoard();
 
     // log
@@ -522,7 +612,7 @@
     if (V.phase === "place") {
       if (placing) {
         who = mode === "local" ? `${P.name}, stell deine Flotte auf` : "Stell deine Flotte auf";
-        hint = pick != null ? `Tippe aufs Feld, wo der Bug hin soll (${horiz ? "quer" : "längs"}).` : "Tippe ein Schiff an, um es zu versetzen. Fertig?";
+        hint = pick != null ? `Tippe aufs Feld, wo der Bug hin soll (${horiz ? "quer" : "längs"}), oder zieh es hin.` : "Schiffe mit dem Finger verschieben, antippen dreht sie.";
         show.readyBtn = true;
       } else {
         const wait = V.players.filter((p) => !p.ready).map((p) => p.name);
@@ -574,7 +664,7 @@
         `<span class="hint">&nbsp;${V.shotsLeft} ${V.shotsLeft === 1 ? "Schuss" : "Schüsse"} übrig</span>`;
     }
     $("#reactBtn").hidden = mode !== "online";
-    $("#keys").innerHTML = placing ? "<kbd>R</kbd> oder Rechtsklick dreht · <kbd>Esc</kbd> legt zurück"
+    $("#keys").innerHTML = placing ? "Schiffe mit der Maus ziehen · Klick dreht · <kbd>R</kbd> oder Rechtsklick dreht beim Ziehen"
       : myTurn() ? `<kbd>←↑→↓</kbd> zielen · <kbd>Enter</kbd> Feuer · <kbd>1</kbd>–<kbd>${Math.max(1, n - 1)}</kbd> Gegner${show.sonarBtn ? " · <kbd>S</kbd> Sonar" : ""}` : "";
 
     // turn change feedback
@@ -590,10 +680,11 @@
     }
   }
 
-  $("#board").addEventListener("click", (e) => { const b = e.target.closest("[data-c]"); if (b) tapBoard(+b.dataset.c); });
+  $("#board").addEventListener("click", (e) => { const b = e.target.closest("[data-c]"); if (b && !dragged) tapBoard(+b.dataset.c); });
 
   // desktop: while placing, the held ship follows the mouse; right click turns it
   function preview(c) {
+    if (drag) return;
     for (const el of $("#board").querySelectorAll(".ghost, .bad")) el.classList.remove("ghost", "bad");
     if (c == null || !draft || pick == null || !V || V.phase !== "place") return;
     const cells = G.shipCells(V.size, c, draft[pick].len, horiz);
@@ -605,6 +696,7 @@
   $("#board").addEventListener("mouseover", (e) => { const b = e.target.closest("[data-c]"); hoverCell = b ? +b.dataset.c : null; preview(hoverCell); });
   $("#board").addEventListener("mouseleave", () => { hoverCell = null; preview(null); });
   $("#board").addEventListener("contextmenu", (e) => {
+    if (V && V.phase === "place" && dragTurn()) { e.preventDefault(); return; }
     if (!V || V.phase !== "place" || pick == null) return;
     e.preventDefault(); horiz = !horiz; renderGame(); preview(hoverCell);
   });
@@ -622,7 +714,7 @@
     if (open || $("#game").hidden || !$("#handoff").hidden || !$("#roundEnd").hidden || !V) return;
     const k = e.key.toLowerCase();
     if (V.phase === "place") {
-      if (k === "r") { $("#rotBtn").click(); preview(hoverCell); e.preventDefault(); }
+      if (k === "r") { if (!dragTurn()) { $("#rotBtn").click(); preview(hoverCell); } e.preventDefault(); }
       return;
     }
     if (/^[1-9]$/.test(k)) {
@@ -762,8 +854,13 @@
     const title = iWin ? (ws.length > 1 ? `Ihr gewinnt, ${names}` : "Du gewinnst") : `${names} ${ws.length > 1 ? "gewinnen" : "gewinnt"}`;
     $("#reLabel").textContent = last.over ? "Spiel vorbei" : `Runde ${V.round} vorbei`;
     $("#reTitle").textContent = `${title} ${last.over ? "das Spiel" : "die Runde"}!`;
-    $("#reText").textContent = last.over ? "Alle Flotten sind aufgedeckt. Schau nach, wo die letzten Schiffe lagen." : `Gespielt wird bis ${V.goal} Siege.`;
+    $("#reText").textContent = (last.over ? "" : `Gespielt wird bis ${V.goal} Siege. `) + "So lagen alle Flotten:";
     scoreList($("#reScores"), ws);
+    $("#reFleets").innerHTML = V.players.map((p, i) =>
+      `<figure class="${ws.includes(i) ? "win" : ""}"><div class="board bare" style="--n:${V.size}">${boardHTML({ size: V.size, marks: p.marks, ships: p.ships })}</div>` +
+      `<figcaption>${esc(p.name)}${i === V.me && mode === "online" ? " (du)" : ""}</figcaption></figure>`).join("");
+    const box = $("#reFleets"), w = box.clientWidth || 300, cols = V.players.length > 2 ? 2 : V.players.length;
+    box.style.setProperty("--fbs", Math.floor(Math.min(240, (w - (cols - 1) * 12) / cols)) + "px");
     $("#reBtn").textContent = last.over ? "Revanche" : "Nächste Runde";
     const back = $("#reBack");
     if (mode === "local") { back.hidden = false; back.textContent = "Zur Spieler-Auswahl"; }
