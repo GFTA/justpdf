@@ -620,6 +620,7 @@
     const host = R.you === R.host;
     $("#startOnline").hidden = !host;
     $("#startOnline").disabled = R.members.length < 2;
+    $("#startOnline").textContent = R.members.length < 2 ? "Warte auf Mitspieler …" : `Spiel starten (${R.members.length} Spieler)`;
     const goalTxt = R.goal ? `Gespielt wird bis ${R.goal} Punkte.` : "Gespielt wird eine Runde.";
     const rl = $("#rulesLobby"), key = JSON.stringify(R.rules) + host;
     if (rl.dataset.k !== key) { rl.dataset.k = key; rl.innerHTML = rulesHTML(R.rules || {}, host, false); }

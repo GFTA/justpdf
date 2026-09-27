@@ -45,7 +45,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
 .btn{border:0;border-radius:14px;padding:14px 20px;font-weight:800;font-size:16px;background:var(--surface);
   box-shadow:inset 0 0 0 1.5px var(--line)}
 .btn:active{transform:translateY(1px)}
-.btn:disabled{opacity:.45}
+.btn:disabled{background:var(--surface);color:var(--muted);box-shadow:inset 0 0 0 1.5px var(--line);transform:none}
 .btn-primary{background:var(--accent);color:#231a05;box-shadow:0 4px 0 #b78d12}
 .btn-primary:active{box-shadow:0 2px 0 #b78d12;transform:translateY(2px)}
 .btn-ghost{background:transparent;box-shadow:inset 0 0 0 1.5px var(--line)}
@@ -113,7 +113,9 @@ h1 span{color:var(--accent)}
 .link{display:flex;gap:8px;align-items:center;background:var(--bg2);border-radius:12px;padding:6px 6px 6px 12px;box-shadow:inset 0 0 0 1.5px var(--line)}
 .link code{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;-webkit-user-select:all;user-select:all}
 .link .btn{padding:8px 12px;font-size:14px}
-#startOnline{position:sticky;bottom:0;z-index:2;box-shadow:0 4px 0 #b78d12,0 -14px 24px 6px var(--bg)}
+/* the lobby buttons stay reachable at the bottom on an opaque bar, never over the rules */
+.lobby-actions{position:sticky;bottom:-32px;z-index:3;display:flex;flex-direction:column;gap:10px;
+  margin:auto -16px -32px;padding:14px 16px 32px;background:var(--bg);box-shadow:0 -1px 0 var(--line),0 -16px 20px -8px var(--bg)}
 .members{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
 .members li{display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:12px;background:var(--bg2);box-shadow:inset 0 0 0 1.5px var(--line)}
 .members .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
@@ -357,8 +359,10 @@ h1 span{color:var(--accent)}
       <ul class="members" id="members"></ul>
       <p class="hint" id="lobbyHint"></p>
     </div>
-    <button class="btn btn-primary btn-block" id="startOnline" type="button">Spiel starten</button>
-    <button class="btn btn-ghost btn-block" id="leaveLobby" type="button">Raum verlassen</button>
+    <div class="lobby-actions">
+      <button class="btn btn-primary btn-block" id="startOnline" type="button">Spiel starten</button>
+      <button class="btn btn-ghost btn-block" id="leaveLobby" type="button">Raum verlassen</button>
+    </div>
   </section>
 
   <!-- ===== table ===== -->
