@@ -39,7 +39,7 @@ button{font:inherit;color:inherit;touch-action:manipulation;cursor:pointer}
 button:disabled{cursor:default}
 button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 [hidden]{display:none!important}
-#app{height:100%;display:flex;flex-direction:column;max-width:880px;margin:0 auto}
+#app{height:100%;display:flex;flex-direction:column;max-width:1120px;margin:0 auto}
 
 /* ---------- buttons & fields ---------- */
 .btn{border:0;border-radius:14px;padding:14px 20px;font-weight:800;font-size:16px;background:var(--surface);
@@ -126,27 +126,47 @@ h1 span{color:var(--accent)}
 
 /* ---------- game ---------- */
 #game{flex:1;display:flex;flex-direction:column;min-height:0}
-.topbar{display:flex;align-items:flex-start;gap:8px;padding:10px 16px 0}
-.opps{flex:1;min-width:0;display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:3px;position:relative}
-.opps::-webkit-scrollbar{display:none}
-.opp{position:relative;flex:0 0 auto;width:82px;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px 6px;border-radius:14px;background:var(--bg2);box-shadow:inset 0 0 0 1.5px var(--line)}
-.opp.active{background:var(--surface);box-shadow:inset 0 0 0 2px var(--accent)}
-.opp.away{opacity:.5}
-.opp .fanmini{position:relative;width:60px;height:34px}
-.opp .fanmini i{position:absolute;left:23px;top:2px;width:15px;height:22px;border-radius:3px;border:1.5px solid #fff;transform-origin:50% 140%;
-  background:conic-gradient(from 45deg,var(--red) 0 25%,var(--yellow) 0 50%,var(--green) 0 75%,var(--blue) 0);box-shadow:0 1px 2px rgba(0,0,0,.5)}
-.opp .oname{max-width:100%;font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 4px}
-.opp .ocount{position:absolute;top:-3px;right:-3px;min-width:24px;height:24px;padding:0 6px;border-radius:12px;display:grid;place-items:center;
-  font-weight:800;font-size:13px;background:var(--surface);box-shadow:0 0 0 2px var(--bg);font-variant-numeric:tabular-nums}
-.opp.active .ocount{background:var(--accent);color:#231a05}
-.opp .ouno{position:absolute;bottom:-7px;left:50%;transform:translateX(-50%);font-family:var(--display);font-size:10px;background:var(--red);color:#fff;padding:2px 6px;border-radius:6px}
+.topbar{display:flex;align-items:center;gap:8px;padding:10px 16px 0}
+.roundinfo{flex:1;min-width:0;font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.roundinfo b{color:var(--text)}
+/* opponents sit around the table: left, across, right, then the corners */
+.seat{position:relative;display:flex;flex-direction:column;align-items:center;gap:5px;padding:7px 8px 6px;border-radius:14px;transition:background .2s,box-shadow .2s,opacity .2s}
+.seat.active{background:var(--surface);box-shadow:inset 0 0 0 2px var(--accent),0 0 22px -6px var(--accent)}
+.seat.away{opacity:.45}
+.sfan{display:flex;align-items:center}
+.sfan i{flex:none;width:var(--bw);height:var(--bh);border-radius:3px;border:1.5px solid #fff;box-shadow:1px 1px 2px rgba(0,0,0,.5);
+  background:radial-gradient(circle,#17121f 0 22%,transparent 23%),conic-gradient(from 45deg,var(--red) 0 25%,var(--yellow) 0 50%,var(--green) 0 75%,var(--blue) 0)}
+.seat.h{--bw:18px;--bh:27px}
+.seat.v{--bw:27px;--bh:18px}
+.seat.h .sfan i + i{margin-left:calc(var(--step) - var(--bw))}
+.seat.v .sfan{flex-direction:column}
+.seat.v .sfan i + i{margin-top:calc(var(--step) - var(--bh))}
+.slabel{display:flex;align-items:center;justify-content:center;gap:5px;width:max-content;max-width:var(--lw,120px);font-size:12px;font-weight:700}
+.s-t .seat{min-width:0;padding-inline:4px}
+@media (min-width:900px) and (min-height:700px){
+  .seat.h{--bw:24px;--bh:36px}
+  .seat.v{--bw:36px;--bh:24px}
+  .slabel{font-size:14px}
+  .scount{min-width:26px;height:26px;border-radius:13px}
+}
+.sname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.scount{flex:none;min-width:22px;height:22px;padding:0 6px;border-radius:11px;display:grid;place-items:center;background:var(--surface);font-weight:800;font-variant-numeric:tabular-nums;box-shadow:inset 0 0 0 1px var(--line)}
+.seat.active .scount{background:var(--accent);color:#231a05;box-shadow:none}
+.seat .ouno{position:absolute;top:-8px;left:50%;transform:translateX(-50%);font-family:var(--display);font-size:10px;background:var(--red);color:#fff;padding:2px 6px;border-radius:6px;white-space:nowrap;z-index:2}
 .iconbtn{flex:none;width:42px;height:42px;border-radius:12px;border:0;background:var(--bg2);box-shadow:inset 0 0 0 1.5px var(--line);display:grid;place-items:center}
 .iconbtn svg{width:22px;height:22px}
 
-.table{flex:1;min-height:180px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}
-.piles{display:flex;align-items:flex-start;gap:34px}
+.table{flex:1;min-height:0;display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-rows:auto minmax(0,1fr) auto;
+  grid-template-areas:"tl t tr" "l c r" "bl . br";gap:4px 6px;padding:6px 8px 8px;align-items:center;justify-items:center}
+.slot{display:flex;gap:6px;align-items:center;justify-content:center;min-width:0}
+.slot:empty{display:none}
+.s-tl{grid-area:tl;justify-self:start;align-self:start} .s-t{grid-area:t} .s-tr{grid-area:tr;justify-self:end;align-self:start}
+.s-l{grid-area:l;flex-direction:column} .s-r{grid-area:r;flex-direction:column}
+.s-bl{grid-area:bl;justify-self:start;align-self:end} .s-br{grid-area:br;justify-self:end;align-self:end}
+.center{grid-area:c;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px}
+.piles{display:flex;align-items:flex-start;gap:clamp(16px,5vw,40px)}
 .pile{position:relative;display:flex;flex-direction:column;align-items:center;gap:8px}
-.pile .card{--cw:clamp(80px,24vw,112px)}
+.pile .card{--cw:clamp(70px,21vw,112px)}
 .pile .cap{font-size:12px;color:var(--muted);font-weight:600;font-variant-numeric:tabular-nums}
 #drawPile{border:0;background:none;padding:6px;position:relative;touch-action:none}
 #drawPile .card:nth-child(1){position:absolute;left:10px;top:10px;opacity:.6}
@@ -185,7 +205,7 @@ h1 span{color:var(--accent)}
 @keyframes ring{from{stroke-dashoffset:0}to{stroke-dashoffset:295.3}}
 @keyframes throb{to{transform:scale(1.05)}}
 #unoCall .sec{font-family:var(--display);font-size:28px;color:var(--accent);font-variant-numeric:tabular-nums}
-.opp .ouno.wait{background:var(--accent);color:#231a05;animation:blink .5s steps(2) infinite}
+.seat .ouno.wait{background:var(--accent);color:#231a05;animation:blink .5s steps(2) infinite}
 @keyframes blink{50%{opacity:.4}}
 .toggle{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;background:var(--bg2);box-shadow:inset 0 0 0 1.5px var(--line);cursor:pointer}
 .toggle input{appearance:none;-webkit-appearance:none;flex:none;width:46px;height:28px;border-radius:14px;background:var(--line);position:relative;margin:0;transition:background .2s;cursor:pointer}
@@ -225,7 +245,6 @@ h1 span{color:var(--accent)}
   #drawPile.can{cursor:pointer}
   #drawPile.can:hover .card:nth-child(3){transform:translateY(-6px);animation:none}
   .btn:not(:disabled):hover{filter:brightness(1.08)}
-  .opp{width:96px}
 }
 @media (min-width:900px) and (min-height:700px){
   .hand{--cw:clamp(80px,9vw,104px)}
@@ -236,7 +255,7 @@ h1 span{color:var(--accent)}
 .fly-inner{position:relative;width:100%;height:100%;transform-style:preserve-3d}
 .fly-inner > .card{position:absolute;inset:0;margin:0!important;-webkit-backface-visibility:hidden;backface-visibility:hidden;transform:none;box-shadow:0 10px 24px rgba(0,0,0,.5)}
 .fly-inner > .fly-back{transform:rotateY(180deg)}
-.opp .ouno.out{background:var(--muted);color:var(--bg)}
+.seat .ouno.out{background:var(--muted);color:var(--bg)}
 .hand .card.sel{transform:translateY(-14px);box-shadow:0 0 0 3px var(--accent),0 10px 18px rgba(0,0,0,.5)}
 .hand .card.fresh{transform:translateY(-8px);box-shadow:0 0 0 3px #fff,0 8px 16px rgba(0,0,0,.5)}
 .hand .card.lifted{opacity:.25}
@@ -391,7 +410,7 @@ h1 span{color:var(--accent)}
   <!-- ===== table ===== -->
   <section id="game" hidden aria-label="Spieltisch">
     <div class="topbar">
-      <div class="opps" id="opps"></div>
+      <div class="roundinfo" id="roundInfo"></div>
       <button class="iconbtn" id="reactBtn" type="button" aria-label="Reaktion senden" hidden>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 14.5c1.8 2 5.2 2 7 0"/><path d="M9 9.5h.01M15 9.5h.01" stroke-width="3"/></svg>
       </button>
@@ -400,7 +419,10 @@ h1 span{color:var(--accent)}
       </button>
     </div>
 
-    <div class="table">
+    <div class="table" id="table">
+      <div class="slot s-tl"></div><div class="slot s-t"></div><div class="slot s-tr"></div>
+      <div class="slot s-l"></div>
+      <div class="center">
       <div class="piles">
         <div class="pile">
           <button id="drawPile" type="button" aria-label="Karte ziehen">
@@ -422,6 +444,9 @@ h1 span{color:var(--accent)}
         <span class="pending-tag" id="pendingTag" hidden></span>
         <span id="dir"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v5h-5"/></svg><span id="dirText"></span></span>
       </div>
+      </div>
+      <div class="slot s-r"></div>
+      <div class="slot s-bl"></div><div class="slot s-br"></div>
     </div>
 
     <div class="dock" id="dock">

@@ -378,30 +378,46 @@
     updateNet();
   }
 
-  function fanMini(n) {
-    const k = Math.min(n, 12), spread = Math.min(11, 70 / Math.max(k, 1));
-    let h = "";
-    for (let i = 0; i < k; i++) h += `<i style="transform:rotate(${((i - (k - 1) / 2) * spread).toFixed(1)}deg)"></i>`;
-    return h;
+  // where the opponents sit, in seating order starting with the player after me
+  const SEATS = {
+    1: ["t"], 2: ["l", "r"], 3: ["l", "t", "r"], 4: ["l", "tl", "tr", "r"], 5: ["l", "tl", "t", "tr", "r"],
+    6: ["bl", "l", "tl", "tr", "r", "br"], 7: ["bl", "l", "tl", "t", "tr", "r", "br"],
+    8: ["bl", "l", "tl", "t", "t", "tr", "r", "br"], 9: ["bl", "l", "tl", "t", "t", "t", "tr", "r", "br"]
+  };
+  function renderSeats() {
+    const n = V.players.length, members = mode === "online" && R ? R.members : null;
+    const slots = SEATS[n - 1] || [], perSlot = {};
+    slots.forEach((sl) => { perSlot[sl] = (perSlot[sl] || 0) + 1; });
+    const tbl = $("#table"), W = tbl.clientWidth || innerWidth, H = tbl.clientHeight || innerHeight / 2;
+    const big = matchMedia("(min-width: 900px) and (min-height: 700px)").matches;
+    const cardLen = big ? 24 : 18, maxStep = big ? 20 : 13;
+    const html = { tl: "", t: "", tr: "", l: "", r: "", bl: "", br: "" };
+    for (let k = 1; k < n; k++) {
+      const i = (V.me + k) % n, p = V.players[i], slot = slots[k - 1];
+      const vertical = slot === "l" || slot === "r";
+      // room for the fan: cards stay countable, they just overlap more when there are many
+      const room = Math.max(40, vertical ? Math.min(big ? 260 : 190, H * 0.42)
+        : slot === "t" ? Math.min(big ? 300 : 230, (W * 0.5) / perSlot.t - 14)
+        : Math.min(big ? 220 : 160, W * 0.22 - 14));
+      const cnt = p.count;
+      const step = cnt > 1 ? Math.max(2.5, Math.min(maxStep, (room - cardLen) / (cnt - 1))) : 0;
+      const away = members && !members[i].online;
+      const cls = ["seat", vertical ? "v" : "h", i === V.cur && V.phase !== "roundEnd" ? "active" : "", away || p.out ? "away" : ""].join(" ");
+      const badge = p.out ? '<span class="ouno out">RAUS</span>'
+        : (V.unoWaits || []).some((w) => w.pi === i) ? '<span class="ouno wait">UNO?</span>'
+        : p.count === 1 ? '<span class="ouno">UNO</span>' : "";
+      html[slot] += `<div class="${cls}" data-seat="${i}" title="${esc(p.name)}: ${cnt} Karten${away ? " (offline)" : ""}" ` +
+        `style="--step:${step.toFixed(1)}px;--lw:${vertical ? (big ? 110 : 76) : Math.round(room)}px">${badge}` +
+        `<div class="sfan">${"<i></i>".repeat(Math.min(cnt, 60))}</div>` +
+        `<div class="slabel"><span class="sname">${esc(p.name)}</span><span class="scount">${cnt}</span></div></div>`;
+    }
+    for (const sl of Object.keys(html)) { const el = tbl.querySelector(".s-" + sl); if (el.innerHTML !== html[sl]) el.innerHTML = html[sl]; }
   }
 
   function renderGame() {
-    const n = V.players.length;
-    const members = mode === "online" && R ? R.members : null;
-    // opponents in seating order, starting with the player after me
-    let opps = "";
-    for (let k = 1; k < n; k++) {
-      const i = (V.me + k) % n, p = V.players[i];
-      const away = members && !members[i].online;
-      const cls = ["opp", i === V.cur && V.phase !== "roundEnd" ? "active" : "", away || p.out ? "away" : ""].join(" ");
-      opps += `<div class="${cls}" data-seat="${i}" title="${esc(p.name)}: ${p.count} Karten${away ? " (offline)" : ""}">` +
-        `<span class="ocount">${p.count}</span><div class="fanmini">${fanMini(p.count)}</div>` +
-        `<div class="oname">${esc(p.name)}</div>${p.out ? '<span class="ouno out">RAUS</span>' : ""}${(V.unoWaits || []).some((w) => w.pi === i) ? '<span class="ouno wait">UNO?</span>' : p.count === 1 ? '<span class="ouno">UNO</span>' : ""}</div>`;
-    }
-    const oppsEl = $("#opps");
-    oppsEl.innerHTML = opps;
-    const act = oppsEl.querySelector(".opp.active");
-    if (act) oppsEl.scrollLeft = act.offsetLeft - (oppsEl.clientWidth - act.offsetWidth) / 2;
+    renderSeats();
+    const meP = V.players[V.me];
+    $("#roundInfo").innerHTML = `Runde <b>${V.round}</b>${V.goal ? ` · bis ${V.goal}` : ""}${meP ? ` · ${mode === "online" ? "du" : esc(meP.name)}: <b>${meP.score}</b> Pkt.` : ""}`;
 
     // table
     const disc = $("#discard");
@@ -531,7 +547,7 @@
 
   // ---------- reactions (online) ----------
   function bubble(pi, e) {
-    const host = pi === (R && R.you) ? $("#dock") : document.querySelector(`#opps [data-seat="${pi}"]`);
+    const host = pi === (R && R.you) ? $("#dock") : document.querySelector(`#table .seat[data-seat="${pi}"]`);
     if (!host) return;
     const b = document.createElement("span");
     b.className = "bubble"; b.textContent = e;
@@ -614,11 +630,11 @@
       back.className = "card card-back fly-back";
       back.style.setProperty("--cw", r.width + "px");
       inner.append(back, face); wrap.append(inner); document.body.append(wrap);
-      el.style.visibility = "hidden";
+      el.style.opacity = "0"; // not visibility:hidden, so a quick tap still lands on this card
       const opts = { duration: 460, delay: k * 110, easing: "cubic-bezier(.2,.8,.2,1)", fill: "backwards" };
       wrap.animate([{ transform: `translate(${d.left - r.left}px,${d.top - r.top}px) scale(${d.width / r.width})` }, { transform: "none" }], opts);
       const a = inner.animate([{ transform: "rotateY(180deg)" }, { transform: "rotateY(0deg)" }], opts);
-      a.onfinish = a.oncancel = () => { wrap.remove(); el.style.visibility = ""; };
+      a.onfinish = a.oncancel = () => { wrap.remove(); el.style.opacity = ""; };
     });
   }
 
@@ -632,7 +648,7 @@
     const s = hand.querySelector(".sel, .fresh");
     if (s && (s.offsetLeft < hand.scrollLeft || s.offsetLeft + cw > hand.scrollLeft + hand.clientWidth)) hand.scrollLeft = s.offsetLeft - W / 2;
   }
-  window.addEventListener("resize", () => { if (V) layoutHand(); });
+  window.addEventListener("resize", () => { if (V && !$("#game").hidden) { layoutHand(); renderSeats(); } });
 
   function renderHandoff() {
     $("#hoName").textContent = V.players[V.me].name;
