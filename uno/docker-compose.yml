@@ -1,0 +1,13 @@
+services:
+  pass-uno:
+    build: .
+    image: pass-uno:latest
+    container_name: pass-uno
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - pass-uno-data:/data
+
+volumes:
+  pass-uno-data:
