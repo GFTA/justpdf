@@ -80,10 +80,19 @@
     return rulesOf(S).jumpIn && !S.pending && c.c !== "w" && c.c === t.c && c.v === t.v;
   }
 
+  // next seat in play direction, skipping players who gave up this round
   function nextIdx(S, from, steps = 1) {
     const n = S.players.length;
-    return (((from + S.dir * steps) % n) + n) % n;
+    let i = from;
+    for (let s = 0; s < steps; s++) {
+      for (let k = 0; k < n; k++) {
+        i = (((i + S.dir) % n) + n) % n;
+        if (!S.players[i].out || i === from) break;
+      }
+    }
+    return i;
   }
+  const activeCount = (S) => S.players.filter((p) => !p.out).length;
 
   function draw(S, pi, n) {
     const got = [];
@@ -128,7 +137,7 @@
     S.dir = 1;
     S.log = [];
     S.last = null;
-    S.players.forEach((p) => { p.hand = []; });
+    S.players.forEach((p) => { p.hand = []; p.out = false; });
     for (let k = 0; k < 7; k++) S.players.forEach((_, i) => draw(S, i, 1));
     let c = S.deck.pop();
     while (!isNum(c)) {
@@ -249,9 +258,22 @@
       return { ok: true, events };
     }
 
+    if (a.t === "surrender") { // give up this round; the cards stay and count for the winner
+      const q = S.players[pi];
+      if (!q || q.out || S.phase === "roundEnd") return fail("Das geht gerade nicht.");
+      q.out = true;
+      S.unoWaits = S.unoWaits.filter((w) => w.pi !== pi);
+      log(S, `${q.name} gibt diese Runde auf.`);
+      events.push({ t: "surrender", pi });
+      if (activeCount(S) === 1) { S.pending = 0; endRound(S, S.players.findIndex((x) => !x.out)); return { ok: true, events }; }
+      if (S.cur === pi) beginTurn(S, nextIdx(S, pi), events);
+      return { ok: true, events };
+    }
+
     if (S.phase !== "play" && S.phase !== "drawn") return fail("Gerade ist niemand dran.");
     const p = S.players[pi];
     if (!p) return fail("Unbekannter Spieler.");
+    if (p.out) return fail("Du hast diese Runde aufgegeben.");
 
     if (pi !== S.cur) {
       const c = a.t === "play" && p.hand.find((x) => x.id === a.id);
@@ -308,7 +330,7 @@
       }
       if (c.c === "w" && !COLORS.includes(a.color)) return fail("Bitte eine Farbe wählen.");
       const swap = R.sevenZero && c.v === "7" && p.hand.length > 1;
-      if (swap && !(Number.isInteger(a.target) && a.target !== pi && S.players[a.target])) return fail("Wähle, mit wem du die Hand tauschst.");
+      if (swap && !(Number.isInteger(a.target) && a.target !== pi && S.players[a.target] && !S.players[a.target].out)) return fail("Wähle, mit wem du die Hand tauschst.");
 
       // still waiting for your own UNO from earlier: you did not call it in time
       if (S.unoWaits.some((w) => w.pi === pi)) {
@@ -330,7 +352,7 @@
       }
       if (p.hand.length && R.sevenZero && c.v === "0") {
         const hands = S.players.map((x) => x.hand);
-        S.players.forEach((x, k) => { S.players[nextIdx(S, k)].hand = hands[k]; });
+        S.players.forEach((x, k) => { if (!x.out) S.players[nextIdx(S, k)].hand = hands[k]; });
         log(S, "Alle geben ihre Hand in Spielrichtung weiter.");
         events.push({ t: "rotate" });
       }
@@ -340,7 +362,7 @@
         events.push({ t: "unoWait", pi });
       }
 
-      const n = S.players.length;
+      const n = activeCount(S);
       let steps = 1;
       if (c.v === "skip") { steps = 2; log(S, `${S.players[nextIdx(S, pi)].name} muss aussetzen.`); }
       if (c.v === "rev") {
@@ -362,7 +384,7 @@
   function view(S, pi) {
     const me = S.players[pi];
     return {
-      players: S.players.map((p) => ({ name: p.name, count: p.hand.length, score: p.score })),
+      players: S.players.map((p) => ({ name: p.name, count: p.hand.length, score: p.score, out: !!p.out })),
       me: pi,
       hand: me ? me.hand.slice() : [],
       top: top(S),

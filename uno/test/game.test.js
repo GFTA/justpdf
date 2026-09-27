@@ -217,6 +217,23 @@ test("jump-in with the identical card takes over the turn", () => {
   assert.strictEqual(G.act(T, 2, { t: "play", id: 901 }).ok, false, "rule off");
 });
 
+test("giving up: skipped for the round, last one standing wins", () => {
+  const S = G.newGame(["a", "b", "c"], 0, {});
+  S.cur = 0; S.dir = 1; S.discard = [card("r", "5", 900)]; S.color = "r";
+  S.players[0].hand = [card("r", "1", 950), card("y", "2", 951)];
+  assert.ok(G.act(S, 1, { t: "surrender" }).ok, "any time, not only on your turn");
+  assert.strictEqual(G.act(S, 1, { t: "draw" }).ok, false);
+  G.act(S, 0, { t: "play", id: 950 });
+  assert.strictEqual(S.cur, 2, "b is skipped");
+  assert.strictEqual(G.view(S, 0).players[1].out, true);
+  const res = G.act(S, 2, { t: "surrender" });
+  assert.strictEqual(S.phase, "roundEnd");
+  assert.strictEqual(S.last.winner, 0);
+  assert.ok(res.events.some((e) => e.t === "surrender"));
+  G.act(S, 0, { t: "next" });
+  assert.ok(S.players.every((p) => !p.out), "back in next round");
+});
+
 test("chaos mode doubles every action and wild card", () => {
   const d = G.buildDeck(true);
   assert.strictEqual(d.length, 140);

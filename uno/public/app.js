@@ -130,11 +130,13 @@
     if (ev.t === "swap") toast(`${who(ev.pi)} tauscht die Hand mit ${ev.with === me ? "dir" : players[ev.with].name}!`);
     if (ev.t === "rotate") toast("Alle Hände wandern eins weiter!");
     if (ev.t === "jump") { toast(`${who(ev.pi)} wirft rein!`); sfx("uno"); }
+    if (ev.t === "surrender") toast(ev.pi === me ? "Du hast diese Runde aufgegeben." : `${players[ev.pi].name} gibt diese Runde auf.`);
   }
   function localEvents(events, turnBefore) {
     for (const ev of events || []) {
       if (ev.t === "played") sfx("card");
       if (ev.t === "drew" || ev.t === "took") sfx("draw");
+      if ((ev.t === "drew" || ev.t === "took" || ev.t === "penalty") && ev.pi === L.cur) drawFx = true;
       ruleEvent(ev, L.players, -1);
       if (ev.t === "uno") { flashUno(L.players[ev.pi].name); sfx("uno"); }
       if (ev.t === "penalty") { toast(`${L.players[ev.pi].name} war zu langsam: 2 Strafkarten!`); sfx("bad"); }
@@ -206,12 +208,14 @@
     if (V.phase !== "play") { toast("Du hast schon gezogen. Leg die Karte oder tippe „Behalten“."); return; }
     doAct({ t: "draw" });
   }
+  // first tap lifts the card, a second tap on it plays it
+  let tipShown = false;
   function tapCard(id) {
     const c = V.hand.find((x) => x.id === id); if (!c) return;
     if (!playable(c)) { shake(id); toast(whyNot(c)); return; }
-    if (sel === id) { tryPlay(id); return; }
+    if (sel === id) { sel = null; tryPlay(id); return; }
     sel = id; renderGame();
-    toast("Zieh die Karte auf den Ablagestapel oder tippe sie nochmal an.");
+    if (!tipShown) { tipShown = true; toast("Nochmal antippen zum Legen, oder auf den Stapel ziehen."); }
   }
 
   // ---------- drag and drop ----------
@@ -252,7 +256,7 @@
     if (cardEl) drag = { kind: "card", id: +cardEl.dataset.id, el: cardEl, src: cardEl };
     else if (deckEl) drag = { kind: "deck", el: deckEl.querySelector(".card:last-child"), src: deckEl };
     else return;
-    Object.assign(drag, { pid: e.pointerId, x0: e.clientX, y0: e.clientY, active: false });
+    Object.assign(drag, { pid: e.pointerId, x0: e.clientX, y0: e.clientY, t0: Date.now(), active: false });
     drag.src.addEventListener("pointermove", onElMove);
     drag.src.addEventListener("pointerup", onElUp);
     drag.src.addEventListener("pointercancel", onElCancel);
@@ -261,7 +265,7 @@
     if (!drag || e.pointerId !== drag.pid) return;
     const dx = e.clientX - drag.x0, dy = e.clientY - drag.y0;
     if (!drag.active) {
-      if (Math.hypot(dx, dy) < 9) return;
+      if (Math.hypot(dx, dy) < 14) return; // fingers wobble; small moves are still a tap
       if (drag.kind === "card" && Math.abs(dy) < Math.abs(dx) * 0.8) { abortDrag(); return; } // sideways: scroll the hand
       if (drag.kind === "deck" && !myTurn()) { toast(`Warte, ${V.players[V.cur].name} ist dran.`); abortDrag(); return; }
       if (drag.kind === "deck" && V.phase !== "play") { toast("Du hast schon gezogen."); abortDrag(); return; }
@@ -293,7 +297,8 @@
     const d = drag; drag = null;
     finishDrag(d);
     if (cancelled) return;
-    if (!d.active) { if (d.kind === "card") tapCard(d.id); else tryDraw(); return; }
+    const tap = !d.active || (!dropZone(d.kind, e.clientY) && Date.now() - d.t0 < 350 && Math.hypot(e.clientX - d.x0, e.clientY - d.y0) < 30);
+    if (tap) { if (d.kind === "card") tapCard(d.id); else tryDraw(); return; }
     if (!dropZone(d.kind, e.clientY)) return;
     if (d.kind === "card") tryPlay(d.id); else tryDraw();
   }
@@ -302,6 +307,26 @@
   window.addEventListener("pointerup", (e) => { if (once(e)) endDrag(e, false); });
   window.addEventListener("pointercancel", (e) => { if (once(e)) endDrag(e, true); });
   window.addEventListener("blur", abortDrag);
+  // desktop: the mouse wheel scrolls the hand sideways
+  $("#hand").addEventListener("wheel", (e) => {
+    const h = $("#hand");
+    if (h.scrollWidth <= h.clientWidth || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+    h.scrollLeft += e.deltaY; e.preventDefault();
+  }, { passive: false });
+  // desktop: D draws, U calls UNO, Esc closes whatever is open
+  document.addEventListener("keydown", (e) => {
+    if (e.target.closest("input, textarea") || e.ctrlKey || e.metaKey || e.altKey) return;
+    const open = ["#picker", "#swapPicker", "#menu", "#reactBar"].find((s) => !$(s).hidden);
+    if (e.key === "Escape") {
+      if (open) { $(open).hidden = true; pendingWild = null; pendingSwap = null; }
+      else if (sel != null) { sel = null; renderGame(); }
+      return;
+    }
+    if (open || $("#game").hidden) return;
+    const k = e.key.toLowerCase();
+    if (k === "u" && !$("#unoCall").hidden) { $("#unoBig").click(); e.preventDefault(); }
+    else if (k === "d" && $("#handoff").hidden) { tryDraw(); e.preventDefault(); }
+  });
   // keyboard users: Enter/Space on a card or the pile
   $("#hand").addEventListener("click", (e) => { const b = e.target.closest("[data-id]"); if (b && e.detail === 0) tapCard(+b.dataset.id); });
   $("#drawPile").addEventListener("click", (e) => { if (e.detail === 0) tryDraw(); });
@@ -348,10 +373,10 @@
     for (let k = 1; k < n; k++) {
       const i = (V.me + k) % n, p = V.players[i];
       const away = members && !members[i].online;
-      const cls = ["opp", i === V.cur && V.phase !== "roundEnd" ? "active" : "", away ? "away" : ""].join(" ");
+      const cls = ["opp", i === V.cur && V.phase !== "roundEnd" ? "active" : "", away || p.out ? "away" : ""].join(" ");
       opps += `<div class="${cls}" data-seat="${i}" title="${esc(p.name)}: ${p.count} Karten${away ? " (offline)" : ""}">` +
         `<span class="ocount">${p.count}</span><div class="fanmini">${fanMini(p.count)}</div>` +
-        `<div class="oname">${esc(p.name)}</div>${(V.unoWaits || []).some((w) => w.pi === i) ? '<span class="ouno wait">UNO?</span>' : p.count === 1 ? '<span class="ouno">UNO</span>' : ""}</div>`;
+        `<div class="oname">${esc(p.name)}</div>${p.out ? '<span class="ouno out">RAUS</span>' : ""}${(V.unoWaits || []).some((w) => w.pi === i) ? '<span class="ouno wait">UNO?</span>' : p.count === 1 ? '<span class="ouno">UNO</span>' : ""}</div>`;
     }
     const oppsEl = $("#opps");
     oppsEl.innerHTML = opps;
@@ -375,6 +400,7 @@
     const drawn = V.drawnId != null ? V.hand.find((c) => c.id === V.drawnId) : null;
     let who, hint;
     if (V.phase === "roundEnd") { who = "Runde vorbei"; hint = ""; }
+    else if (V.players[V.me] && V.players[V.me].out) { who = "Du hast aufgegeben"; hint = "Nächste Runde bist du wieder dabei."; }
     else if (mine) {
       who = mode === "local" ? `${V.players[V.me].name}, du bist dran` : "Du bist dran";
       if (V.pending) hint = V.hand.some(fits)
@@ -405,10 +431,17 @@
     const hand = $("#hand");
     hand.innerHTML = sortHand(V.hand).map((c) => {
       const ok = playable(c);
-      const cls = [mine && !ok ? "no" : "", !mine && ok ? "jump" : "", c.id === sel ? "sel" : "", c.id === V.drawnId ? "fresh" : ""].join(" ");
+      const cls = [mine && !ok ? "no" : "", mine && ok ? "ok" : "", !mine && ok ? "jump" : "", c.id === sel ? "sel" : "", c.id === V.drawnId ? "fresh" : ""].join(" ");
       return cardHTML(c, cls, "button");
     }).join("");
     layoutHand();
+
+    // cards that just came from the pile fly in from it
+    const ids = new Set(V.hand.map((c) => c.id));
+    const same = prevHand && prevHand.me === V.me && prevHand.round === V.round && !(mode === "local" && hidden);
+    if (same && drawFx) flyIn(V.hand.filter((c) => !prevHand.ids.has(c.id)).map((c) => c.id));
+    drawFx = false;
+    prevHand = { me: V.me, round: V.round, ids };
 
     // turn change feedback
     const key = `${V.round}:${V.turn}`;
@@ -528,6 +561,36 @@
     else if (!wsSend({ t: "act", a: { t: "uno" } })) toast("Keine Verbindung zum Server.");
   });
 
+  let prevHand = null, drawFx = false;
+  function flyIn(ids) {
+    if (!ids.length || ids.length > 12 || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const deckEl = $("#drawPile .card:last-child");
+    if (!deckEl || !deckEl.offsetWidth) return;
+    const d = deckEl.getBoundingClientRect();
+    ids.forEach((id, k) => {
+      const el = document.querySelector(`#hand [data-id="${id}"]`);
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const wrap = document.createElement("div");
+      wrap.className = "fly";
+      wrap.style.cssText = `left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px`;
+      const inner = document.createElement("div");
+      inner.className = "fly-inner";
+      const face = el.cloneNode(true);
+      face.className = face.className.replace(/\b(no|ok|sel|fresh|jump|shake|lifted)\b/g, "");
+      face.style.setProperty("--cw", r.width + "px");
+      const back = document.createElement("span");
+      back.className = "card card-back fly-back";
+      back.style.setProperty("--cw", r.width + "px");
+      inner.append(back, face); wrap.append(inner); document.body.append(wrap);
+      el.style.visibility = "hidden";
+      const opts = { duration: 460, delay: k * 110, easing: "cubic-bezier(.2,.8,.2,1)", fill: "backwards" };
+      wrap.animate([{ transform: `translate(${d.left - r.left}px,${d.top - r.top}px) scale(${d.width / r.width})` }, { transform: "none" }], opts);
+      const a = inner.animate([{ transform: "rotateY(180deg)" }, { transform: "rotateY(0deg)" }], opts);
+      a.onfinish = a.oncancel = () => { wrap.remove(); el.style.visibility = ""; };
+    });
+  }
+
   function layoutHand() {
     const hand = $("#hand"), first = hand.querySelector(".card");
     if (!first) return;
@@ -624,6 +687,8 @@
     const goalTxt = R.goal ? `Gespielt wird bis ${R.goal} Punkte.` : "Gespielt wird eine Runde.";
     const rl = $("#rulesLobby"), key = JSON.stringify(R.rules) + host;
     if (rl.dataset.k !== key) { rl.dataset.k = key; rl.innerHTML = rulesHTML(R.rules || {}, host, false); }
+    const onR = activeNames(R.rules || {});
+    $("#rulesLobbySum").textContent = onR.length ? onR.join(", ") : "keine";
     $("#rulesLobbyHint").textContent = host ? "Tippe an, was gelten soll. Alle sehen deine Auswahl." : `${R.members[R.host].name} legt die Hausregeln fest.`;
     $("#lobbyHint").textContent = host
       ? (R.members.length < 2 ? `Warte auf Mitspieler. ${goalTxt}` : `${on} von ${R.members.length} online. ${goalTxt}`)
@@ -709,6 +774,7 @@
         for (const ev of m.events || []) {
           if (ev.t === "played") sfx("card");
           if ((ev.t === "drew" || ev.t === "took") && ev.pi === v.me) sfx("draw");
+          if ((ev.t === "drew" || ev.t === "took" || ev.t === "penalty") && ev.pi === v.me) drawFx = true;
           ruleEvent(ev, v.players, v.me);
           if (ev.t === "uno") { flashUno(ev.pi === v.me ? "" : v.players[ev.pi].name); sfx("uno"); }
           if (ev.t === "penalty") { toast(ev.pi === v.me ? "Zu langsam: 2 Strafkarten!" : `${v.players[ev.pi].name} war zu langsam: 2 Strafkarten!`); sfx("bad"); }
@@ -827,12 +893,15 @@
     const box = $("#menuActions"); box.innerHTML = "";
     if (mode === "local") {
       box.append(
+        armed(`${L.players[L.cur].name}: Runde aufgeben`, () => doAct({ t: "surrender" })),
         armed("Runde neu mischen", () => { L.round--; G.startRound(L); hidden = true; store.set(K.local, L); render(); scheduleLocalUno(); }),
         armed("Spiel beenden", () => { store.del(K.local); L = null; mode = null; render(); })
       );
     } else if (mode === "online" && R) {
       if (R.you === R.host && V && (V.phase === "play" || V.phase === "drawn") && V.cur !== V.me)
         box.append(armed(`${V.players[V.cur].name} überspringen`, () => wsSend({ t: "act", a: { t: "skip" } })));
+      if (V && V.phase !== "roundEnd" && !(V.players[V.me] || {}).out)
+        box.append(armed("Runde aufgeben", () => wsSend({ t: "act", a: { t: "surrender" } })));
       if (R.you === R.host) box.append(armed("Spiel beenden, zurück in den Warteraum", () => wsSend({ t: "end" })));
       box.append(armed("Raum verlassen", () => wsSend({ t: "leave" })));
     }
