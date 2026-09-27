@@ -40,21 +40,44 @@
     return shuffle(d);
   }
 
+  // House rules. Shared with the UI, which renders one switch per entry.
+  const RULES = [
+    { k: "stack", name: "+2 und +4 stapeln", desc: "Auf eine +2 darfst du eine +2 oder +4 legen, auf eine +4 nur eine +4. Wer nicht kontern kann, zieht alles." },
+    { k: "skipAfterDraw", name: "Nach +2/+4 aussetzen", desc: "Wer Strafkarten zieht, ist danach nicht dran. Aus: nach dem Ziehen ganz normal weiterspielen." },
+    { k: "drawUntil", name: "Ziehen, bis es passt", desc: "Wer vom Stapel zieht, zieht so lange, bis eine passende Karte kommt." },
+    { k: "sevenZero", name: "7 tauscht, 0 dreht", desc: "Mit einer 7 tauschst du deine Hand mit jemandem. Bei einer 0 geben alle ihre Hand in Spielrichtung weiter." },
+    { k: "jumpIn", name: "Reinwerfen", desc: "Wer genau dieselbe Karte hat (Farbe und Wert), darf sie sofort legen, auch wenn er nicht dran ist.", onlineOnly: true },
+    { k: "chaos", name: "Chaos-Modus", desc: "Alle Sonderkarten doppelt im Stapel (140 statt 108 Karten)." }
+  ];
+  function normRules(r) {
+    const o = {};
+    for (const x of RULES) o[x.k] = !!(r && r[x.k]);
+    return o;
+  }
+  // games saved before house rules existed kept chaos/stack flags and always skipped after drawing
+  const rulesOf = (S) => S.rules || (S.rules = normRules({ chaos: S.chaos, stack: S.stack, skipAfterDraw: true }));
+
   const isNum = (c) => /^\d$/.test(c.v);
   const cardName = (c) => (c.c === "w" ? VNAME[c.v] : `${CNAME[c.c]} ${VNAME[c.v] || c.v}`);
   const points = (c) => (isNum(c) ? +c.v : c.c === "w" ? 50 : 20);
   const top = (S) => S.discard[S.discard.length - 1];
 
-  // with stacking on, a pending +2 may only be answered with +2 or +4, a pending +4 only with +4
-  function canStack(S, c) {
+  // while +2/+4 cards are pending, only a +2 or +4 on a +2, or a +4 on a +4, can be added
+  function stackable(S, c) {
     if (!S.pending) return true;
     return top(S).v === "d2" ? c.v === "d2" || c.v === "d4" : c.v === "d4";
   }
 
   function canPlay(S, c) {
-    if (!canStack(S, c)) return false;
+    if (!stackable(S, c)) return false;
     if (c.c === "w") return true;
     return c.c === S.color || c.v === top(S).v;
+  }
+
+  // same colour and value as the top card: may be thrown in out of turn with the jump-in rule
+  function canJumpIn(S, c) {
+    const t = top(S);
+    return rulesOf(S).jumpIn && !S.pending && c.c !== "w" && c.c === t.c && c.v === t.v;
   }
 
   function nextIdx(S, from, steps = 1) {
@@ -83,11 +106,11 @@
     if (S.log.length > 40) S.log.shift();
   }
 
-  function newGame(names, goal, opts) {
+  function newGame(names, goal, rules) {
     const S = {
       players: names.map((name) => ({ name, hand: [], score: 0 })),
       deck: [], discard: [], cur: 0, dir: 1, color: "r",
-      phase: "play", drawnId: null, unoWaits: [], chaos: !!(opts && opts.chaos), stack: !!(opts && opts.stack), pending: 0,
+      phase: "play", drawnId: null, unoWaits: [], pending: 0, rules: normRules(rules),
       goal: goal || 0, round: 0, turn: 0,
       starter: Math.floor(Math.random() * names.length),
       log: [], last: null
@@ -98,7 +121,7 @@
 
   function startRound(S) {
     S.round++;
-    S.deck = buildDeck(S.chaos);
+    S.deck = buildDeck(rulesOf(S).chaos);
     S.unoWaits = [];
     S.pending = 0;
     S.discard = [];
@@ -117,18 +140,40 @@
     S.cur = S.starter % S.players.length;
     S.starter = (S.starter + 1) % S.players.length;
     log(S, `Runde ${S.round}: Die erste Karte ist ${cardName(c)}. ${S.players[S.cur].name} beginnt.`);
-    beginTurn(S, S.cur);
+    beginTurn(S, S.cur, []);
   }
 
-  function beginTurn(S, pi) {
+  // Start player pi's turn. Pending +2/+4 cards are drawn right away unless the
+  // player can stack on them.
+  function beginTurn(S, pi, events) {
     S.cur = pi;
     S.phase = "play";
     S.drawnId = null;
     S.turn++;
+    if (!S.pending) return;
+    const p = S.players[pi];
+    if (rulesOf(S).stack && p.hand.some((c) => stackable(S, c))) {
+      log(S, `${p.name} muss ${S.pending} Karten ziehen oder stapeln.`);
+      return;
+    }
+    takePending(S, pi, events);
+  }
+
+  function takePending(S, pi, events) {
+    const n = S.pending, p = S.players[pi];
+    S.pending = 0;
+    draw(S, pi, n);
+    events.push({ t: "took", pi, n });
+    if (rulesOf(S).skipAfterDraw) {
+      log(S, `${p.name} zieht ${n} Karten und setzt aus.`);
+      beginTurn(S, nextIdx(S, pi), events);
+    } else {
+      log(S, `${p.name} zieht ${n} Karten und ist jetzt dran.`);
+    }
   }
 
   function endRound(S, wi) {
-    if (S.pending) { // a stacked +2/+4 as the last card still has to be drawn
+    if (S.pending) { // a +2/+4 as the last card still has to be drawn
       const v = nextIdx(S, wi);
       draw(S, v, S.pending);
       log(S, `${S.players[v].name} zieht noch ${S.pending} Karten.`);
@@ -173,11 +218,13 @@
   }
 
   // Apply an action by player `pi`. Returns { ok, error?, events? }.
-  // Actions: {t:"play", id, color?} {t:"draw"} {t:"keep"} {t:"uno"} {t:"next"} {t:"skip"}
+  // Actions: {t:"play", id, color?, target?} {t:"draw"} {t:"keep"} {t:"uno"} {t:"next"} {t:"skip"}
   function act(S, pi, a) {
-    const fail = (error) => ({ ok: false, error });
+    const fail = (error) => ({ ok: false, error, events });
+    let events = [];
     if (!a || typeof a.t !== "string") return fail("Unbekannte Aktion.");
     if (!S.unoWaits) S.unoWaits = [];
+    const R = rulesOf(S);
 
     if (a.t === "uno") { // allowed any time during your own UNO window, even if it is not your turn
       const w = S.unoWaits.find((x) => x.pi === pi);
@@ -186,7 +233,7 @@
       log(S, `${S.players[pi].name} ruft UNO!`);
       return { ok: true, events: [{ t: "uno", pi }] };
     }
-    const events = tick(S);
+    events = tick(S);
 
     if (a.t === "next") {
       if (S.phase !== "roundEnd") return fail("Die Runde läuft noch.");
@@ -198,48 +245,54 @@
       if (S.phase !== "play" && S.phase !== "drawn") return fail("Gerade ist niemand dran.");
       log(S, `${S.players[S.cur].name} wird übersprungen.`);
       if (S.pending) { draw(S, S.cur, S.pending); S.pending = 0; }
-      beginTurn(S, nextIdx(S, S.cur));
+      beginTurn(S, nextIdx(S, S.cur), events);
       return { ok: true, events };
     }
 
-    if (S.phase !== "play" && S.phase !== "drawn") return { ok: false, error: "Gerade ist niemand dran.", events };
-    if (pi !== S.cur) return { ok: false, error: `${S.players[S.cur].name} ist dran.`, events };
+    if (S.phase !== "play" && S.phase !== "drawn") return fail("Gerade ist niemand dran.");
     const p = S.players[pi];
+    if (!p) return fail("Unbekannter Spieler.");
+
+    if (pi !== S.cur) {
+      const c = a.t === "play" && p.hand.find((x) => x.id === a.id);
+      if (!c || !canJumpIn(S, c)) return fail(`${S.players[S.cur].name} ist dran.`);
+      log(S, `${p.name} wirft rein!`);
+      events.push({ t: "jump", pi });
+      S.cur = pi; S.phase = "play"; S.drawnId = null; S.turn++;
+    }
 
     if (a.t === "draw") {
       if (S.phase !== "play") return fail("Du hast schon gezogen.");
-      if (S.pending) {
-        const n = S.pending;
-        S.pending = 0;
-        draw(S, pi, n);
-        log(S, `${p.name} zieht ${n} Karten und setzt aus.`);
-        events.push({ t: "took", pi, n });
-        beginTurn(S, nextIdx(S, pi));
-        return { ok: true, events };
+      if (S.pending) { takePending(S, pi, events); return { ok: true, events }; }
+      let last = null, n = 0;
+      for (;;) {
+        const got = draw(S, pi, 1);
+        if (!got.length) break;
+        n++; last = got[0];
+        if (!R.drawUntil || canPlay(S, last)) break;
       }
-      const got = draw(S, pi, 1);
-      if (!got.length) {
+      if (!last) {
         log(S, `${p.name} kann nicht ziehen, der Stapel ist leer.`);
-        beginTurn(S, nextIdx(S, pi));
+        beginTurn(S, nextIdx(S, pi), events);
         return { ok: true, events };
       }
-      const c = got[0];
-      if (canPlay(S, c)) {
+      const what = n === 1 ? "eine Karte" : `${n} Karten`;
+      if (canPlay(S, last)) {
         S.phase = "drawn";
-        S.drawnId = c.id;
-        log(S, `${p.name} zieht eine Karte.`);
+        S.drawnId = last.id;
+        log(S, `${p.name} zieht ${what}.`);
       } else {
-        log(S, `${p.name} zieht eine Karte und ist fertig.`);
-        beginTurn(S, nextIdx(S, pi));
+        log(S, `${p.name} zieht ${what} und ist fertig.`);
+        beginTurn(S, nextIdx(S, pi), events);
       }
-      events.push({ t: "drew", pi, id: c.id });
+      events.push({ t: "drew", pi, id: last.id, n });
       return { ok: true, events };
     }
 
     if (a.t === "keep") {
       if (S.phase !== "drawn") return fail("Du hast noch nicht gezogen.");
       log(S, `${p.name} behält die gezogene Karte.`);
-      beginTurn(S, nextIdx(S, pi));
+      beginTurn(S, nextIdx(S, pi), events);
       return { ok: true, events };
     }
 
@@ -254,6 +307,8 @@
         return fail(`Passt nicht. Gesucht: ${CNAME[S.color]} oder ${t.c === "w" ? "eine Farbwahl-Karte" : VNAME[t.v] || t.v}.`);
       }
       if (c.c === "w" && !COLORS.includes(a.color)) return fail("Bitte eine Farbe wählen.");
+      const swap = R.sevenZero && c.v === "7" && p.hand.length > 1;
+      if (swap && !(Number.isInteger(a.target) && a.target !== pi && S.players[a.target])) return fail("Wähle, mit wem du die Hand tauschst.");
 
       // still waiting for your own UNO from earlier: you did not call it in time
       if (S.unoWaits.some((w) => w.pi === pi)) {
@@ -266,6 +321,19 @@
       S.color = c.c === "w" ? a.color : c.c;
       log(S, `${p.name} legt ${cardName(c)}${c.c === "w" ? ` und wünscht sich ${CNAME[a.color]}` : ""}.`);
       events.push({ t: "played", pi, id: c.id });
+
+      if (p.hand.length && swap) {
+        const o = S.players[a.target];
+        [p.hand, o.hand] = [o.hand, p.hand];
+        log(S, `${p.name} tauscht die Hand mit ${o.name}.`);
+        events.push({ t: "swap", pi, with: a.target });
+      }
+      if (p.hand.length && R.sevenZero && c.v === "0") {
+        const hands = S.players.map((x) => x.hand);
+        S.players.forEach((x, k) => { S.players[nextIdx(S, k)].hand = hands[k]; });
+        log(S, "Alle geben ihre Hand in Spielrichtung weiter.");
+        events.push({ t: "rotate" });
+      }
 
       if (p.hand.length === 1) {
         S.unoWaits.push({ pi, until: Date.now() + UNO_MS, id: S.turn });
@@ -280,20 +348,10 @@
         if (n === 2) { steps = 2; log(S, `Richtungswechsel: ${S.players[nextIdx(S, pi)].name} setzt aus.`); }
         else log(S, "Die Spielrichtung dreht sich.");
       }
-      if (c.v === "d2" || c.v === "d4") {
-        const v = nextIdx(S, pi), k = c.v === "d2" ? 2 : 4;
-        if (S.stack) {
-          S.pending += k;
-          log(S, `${S.players[v].name} muss ${S.pending} Karten ziehen oder stapeln.`);
-        } else {
-          draw(S, v, k);
-          steps = 2;
-          log(S, `${S.players[v].name} zieht ${k} Karten und setzt aus.`);
-        }
-      }
+      if (c.v === "d2" || c.v === "d4") S.pending = (S.pending || 0) + (c.v === "d2" ? 2 : 4);
 
       if (p.hand.length === 0) { endRound(S, pi); return { ok: true, events }; }
-      beginTurn(S, nextIdx(S, pi, steps));
+      beginTurn(S, nextIdx(S, pi, steps), events);
       return { ok: true, events };
     }
 
@@ -313,12 +371,12 @@
       next: nextIdx(S, S.cur),
       phase: S.phase, drawnId: pi === S.cur ? S.drawnId : null,
       unoWaits: (S.unoWaits || []).map((w) => ({ pi: w.pi, id: w.id, ms: Math.max(0, w.until - Date.now()) })),
-      chaos: !!S.chaos, stack: !!S.stack, pending: S.pending || 0,
+      rules: rulesOf(S), chaos: rulesOf(S).chaos, pending: S.pending || 0,
       deckCount: S.deck.length,
       round: S.round, goal: S.goal, turn: S.turn,
       log: S.log.slice(-6), last: S.last
     };
   }
 
-  return { COLORS, CNAME, VNAME, UNO_MS, newGame, startRound, act, tick, nextDeadline, view, canPlay, cardName, isNum, points, nextIdx, buildDeck };
+  return { COLORS, CNAME, VNAME, UNO_MS, RULES, normRules, canJumpIn, newGame, startRound, act, tick, nextDeadline, view, canPlay, cardName, isNum, points, nextIdx, buildDeck };
 });

@@ -37,10 +37,16 @@
   const myTurn = () => !!V && (V.phase === "play" || V.phase === "drawn") && V.cur === V.me;
   const stackOk = (c) => !V.pending || (V.top.v === "d2" ? c.v === "d2" || c.v === "d4" : c.v === "d4");
   const fits = (c) => stackOk(c) && (c.c === "w" || c.c === V.color || c.v === V.top.v);
-  const playable = (c) => myTurn() && (V.phase === "drawn" ? c.id === V.drawnId && fits(c) : fits(c));
+  const rules = () => (V && V.rules) || {};
+  // jump-in: the exact same card as the top one may be thrown in out of turn (online only)
+  const jumpable = (c) => mode === "online" && !myTurn() && rules().jumpIn && (V.phase === "play" || V.phase === "drawn") &&
+    !V.pending && c.c !== "w" && c.c === V.top.c && c.v === V.top.v;
+  const playable = (c) => myTurn() ? (V.phase === "drawn" ? c.id === V.drawnId && fits(c) : fits(c)) : jumpable(c);
   const pname = (i) => (i === V.me && mode === "online" ? "du" : V.players[i].name);
   function whyNot(c) {
-    if (!myTurn()) return `Warte, ${V.players[V.cur].name} ist dran.`;
+    if (!myTurn()) return rules().jumpIn && mode === "online"
+      ? `${V.players[V.cur].name} ist dran. Reinwerfen geht nur mit genau derselben Karte.`
+      : `Warte, ${V.players[V.cur].name} ist dran.`;
     if (V.phase === "drawn" && c.id !== V.drawnId) return "Nach dem Ziehen darfst du nur die gezogene Karte legen.";
     if (V.pending) return `Leg eine ${V.top.v === "d2" ? "+2 oder +4" : "+4"} drauf oder zieh ${V.pending} Karten vom Stapel.`;
     return `Passt nicht. Gesucht: ${G.CNAME[V.color]} oder ${V.top.c === "w" ? "eine Farbwahl-Karte" : G.VNAME[V.top.v] || V.top.v}.`;
@@ -108,10 +114,19 @@
   const sfx = (k) => { if (soundOn && document.visibilityState === "visible") try { SFX[k](); } catch (e) {} };
 
   // ---------- actions ----------
+  // messages for rule events; `me` is the viewer online, -1 on a shared phone
+  function ruleEvent(ev, players, me) {
+    const who = (i) => (i === me ? "Du" : players[i].name);
+    if (ev.t === "took") toast(ev.pi === me ? `+${ev.n} Karten für dich.` : `${who(ev.pi)} zieht ${ev.n} Karten.`);
+    if (ev.t === "swap") toast(`${who(ev.pi)} tauscht die Hand mit ${ev.with === me ? "dir" : players[ev.with].name}!`);
+    if (ev.t === "rotate") toast("Alle Hände wandern eins weiter!");
+    if (ev.t === "jump") { toast(`${who(ev.pi)} wirft rein!`); sfx("uno"); }
+  }
   function localEvents(events, turnBefore) {
     for (const ev of events || []) {
       if (ev.t === "played") sfx("card");
       if (ev.t === "drew" || ev.t === "took") sfx("draw");
+      ruleEvent(ev, L.players, -1);
       if (ev.t === "uno") { flashUno(L.players[ev.pi].name); sfx("uno"); }
       if (ev.t === "penalty") { toast(`${L.players[ev.pi].name} war zu langsam: 2 Strafkarten!`); sfx("bad"); }
       if (ev.t === "drew" && L.turn !== turnBefore) {
@@ -160,8 +175,23 @@
     if (!c) return false;
     if (!playable(c)) { shake(id); toast(whyNot(c)); return false; }
     if (c.c === "w") { pendingWild = id; $("#picker").hidden = false; return true; }
+    if (c.v === "7" && rules().sevenZero && V.hand.length > 1) { openSwap(id); return true; }
     return doAct({ t: "play", id });
   }
+  let pendingSwap = null;
+  function openSwap(id) {
+    pendingSwap = id;
+    $("#swapList").innerHTML = V.players.map((p, i) => i === V.me ? "" :
+      `<button type="button" data-target="${i}"><span>${esc(p.name)}</span><b>${p.count} Karten</b></button>`).join("");
+    $("#swapPicker").hidden = false;
+  }
+  $("#swapList").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-target]"); if (!b) return;
+    $("#swapPicker").hidden = true;
+    const id = pendingSwap; pendingSwap = null;
+    if (id != null) doAct({ t: "play", id, target: +b.dataset.target });
+  });
+  $("#swapCancel").addEventListener("click", () => { $("#swapPicker").hidden = true; pendingSwap = null; });
   function tryDraw() {
     if (!myTurn()) { toast(V ? `Warte, ${V.players[V.cur].name} ist dran.` : ""); return; }
     if (V.phase !== "play") { toast("Du hast schon gezogen. Leg die Karte oder tippe „Behalten“."); return; }
@@ -224,7 +254,7 @@
     if (!drag.active) {
       if (Math.hypot(dx, dy) < 9) return;
       if (drag.kind === "card" && Math.abs(dy) < Math.abs(dx) * 0.8) { abortDrag(); return; } // sideways: scroll the hand
-      if (!myTurn()) { toast(`Warte, ${V.players[V.cur].name} ist dran.`); abortDrag(); return; }
+      if (drag.kind === "deck" && !myTurn()) { toast(`Warte, ${V.players[V.cur].name} ist dran.`); abortDrag(); return; }
       if (drag.kind === "deck" && V.phase !== "play") { toast("Du hast schon gezogen."); abortDrag(); return; }
       if (drag.kind === "card") {
         const c = V.hand.find((x) => x.id === drag.id);
@@ -350,7 +380,7 @@
     $("#whoName").textContent = who;
     $("#whoHint").textContent = hint;
     $("#keepBtn").hidden = !(mine && V.phase === "drawn");
-    $("#chaosTag").hidden = !V.chaos;
+    $("#chaosTag").hidden = !rules().chaos;
     $("#pendingTag").hidden = !V.pending;
     $("#pendingTag").textContent = `+${V.pending} offen`;
     const lm = $("#lastMove"), lines = V.log.slice(-2), lmKey = lines.join("\n");
@@ -366,7 +396,7 @@
     const hand = $("#hand");
     hand.innerHTML = sortHand(V.hand).map((c) => {
       const ok = playable(c);
-      const cls = [mine && !ok ? "no" : "", c.id === sel ? "sel" : "", c.id === V.drawnId ? "fresh" : ""].join(" ");
+      const cls = [mine && !ok ? "no" : "", !mine && ok ? "jump" : "", c.id === sel ? "sel" : "", c.id === V.drawnId ? "fresh" : ""].join(" ");
       return cardHTML(c, cls, "button");
     }).join("");
     layoutHand();
@@ -383,6 +413,31 @@
       if (confettiFor !== k) { confettiFor = k; confetti(); sfx("win"); }
     }
   }
+
+  // ---------- house rules ----------
+  let localRules = G.normRules(store.get("passuno.rules") || {});
+  const activeNames = (r) => G.RULES.filter((x) => r && r[x.k]).map((x) => x.name);
+  function rulesHTML(r, editable, local) {
+    return G.RULES.filter((x) => !(local && x.onlineOnly)).map((x) =>
+      `<label class="toggle" for="rule-${local ? "l" : "o"}-${x.k}"><input type="checkbox" id="rule-${local ? "l" : "o"}-${x.k}" data-rule="${x.k}"` +
+      `${r[x.k] ? " checked" : ""}${editable ? "" : " disabled"}><span>${x.name}<small>${x.desc}</small></span></label>`).join("");
+  }
+  function renderLocalRules() {
+    const box = $("#rulesLocal");
+    if (!box.firstChild) box.innerHTML = rulesHTML(localRules, true, true);
+    const on = activeNames(localRules).filter((n) => n !== "Reinwerfen");
+    $("#rulesLocalSum").textContent = on.length ? on.join(", ") : "keine";
+  }
+  $("#rulesLocal").addEventListener("change", (e) => {
+    const k = e.target.dataset.rule; if (!k) return;
+    localRules[k] = e.target.checked; store.set("passuno.rules", localRules); renderLocalRules();
+  });
+  $("#rulesLobby").addEventListener("change", (e) => {
+    const k = e.target.dataset.rule; if (!k || !R || R.you !== R.host) return;
+    const next = Object.assign({}, R.rules, { [k]: e.target.checked });
+    store.set("passuno.rules", Object.assign(localRules, next));
+    wsSend({ t: "rules", rules: next });
+  });
 
   // ---------- confetti ----------
   let confettiFor = null;
@@ -504,6 +559,7 @@
   }
 
   function renderHome() {
+    renderLocalRules();
     for (const b of document.querySelectorAll("#modeTabs button")) b.setAttribute("aria-pressed", String(b.dataset.tab === tab));
     // never hide the online form on a web address: a failed check (ad blocker, slow
     // network) must not lock people out; connecting will tell if there really is no server
@@ -555,7 +611,10 @@
     const host = R.you === R.host;
     $("#startOnline").hidden = !host;
     $("#startOnline").disabled = R.members.length < 2;
-    const goalTxt = (R.goal ? `Gespielt wird bis ${R.goal} Punkte.` : "Gespielt wird eine Runde.") + (R.chaos ? " Chaos-Modus ist an." : "") + (R.stack ? " +2/+4 stapeln ist an." : "");
+    const goalTxt = R.goal ? `Gespielt wird bis ${R.goal} Punkte.` : "Gespielt wird eine Runde.";
+    const rl = $("#rulesLobby"), key = JSON.stringify(R.rules) + host;
+    if (rl.dataset.k !== key) { rl.dataset.k = key; rl.innerHTML = rulesHTML(R.rules || {}, host, false); }
+    $("#rulesLobbyHint").textContent = host ? "Tippe an, was gelten soll. Alle sehen deine Auswahl." : `${R.members[R.host].name} legt die Hausregeln fest.`;
     $("#lobbyHint").textContent = host
       ? (R.members.length < 2 ? `Warte auf Mitspieler. ${goalTxt}` : `${on} von ${R.members.length} online. ${goalTxt}`)
       : `Warte, bis ${R.members[R.host].name} das Spiel startet. ${goalTxt}`;
@@ -634,6 +693,7 @@
         for (const ev of m.events || []) {
           if (ev.t === "played") sfx("card");
           if ((ev.t === "drew" || ev.t === "took") && ev.pi === v.me) sfx("draw");
+          ruleEvent(ev, v.players, v.me);
           if (ev.t === "uno") { flashUno(ev.pi === v.me ? "" : v.players[ev.pi].name); sfx("uno"); }
           if (ev.t === "penalty") { toast(ev.pi === v.me ? "Zu langsam: 2 Strafkarten!" : `${v.players[ev.pi].name} war zu langsam: 2 Strafkarten!`); sfx("bad"); }
           if (ev.t === "drew" && ev.pi === v.me && v.drawnId == null) {
@@ -664,10 +724,6 @@
   $("#myName").value = store.get(K.me) || "";
   $("#soundOn").checked = soundOn;
   $("#soundOn").addEventListener("change", (e) => { soundOn = e.target.checked; store.set("passuno.sound", soundOn); if (soundOn) { audio(); sfx("pop"); } });
-  for (const id of ["chaosLocal", "chaosOnline", "stackLocal", "stackOnline"]) {
-    $("#" + id).checked = !!store.get("passuno." + id);
-    $("#" + id).addEventListener("change", (e) => store.set("passuno." + id, e.target.checked));
-  }
   $("#myName").addEventListener("input", (e) => store.set(K.me, e.target.value));
   $("#joinCode").addEventListener("input", (e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z]/g, ""); });
   const myName = () => {
@@ -687,7 +743,7 @@
   $("#createBtn").addEventListener("click", () => {
     const n = myName(); if (!n) return;
     store.del(K.online);
-    wsSend({ t: "create", name: n, goal: goalOnline, chaos: $("#chaosOnline").checked, stack: $("#stackOnline").checked });
+    wsSend({ t: "create", name: n, goal: goalOnline, rules: localRules });
   });
 
   $("#plist").addEventListener("input", (e) => { if (e.target.dataset.i != null) { names[+e.target.dataset.i] = e.target.value; store.set(K.names, names); } });
@@ -703,7 +759,7 @@
     const el = document.getElementById(`pname-${names.length - 1}`); if (el) el.focus();
   });
   $("#startLocal").addEventListener("click", () => {
-    L = G.newGame(names.map((n, i) => n.trim() || `Spieler ${i + 1}`), goalLocal, { chaos: $("#chaosLocal").checked, stack: $("#stackLocal").checked });
+    L = G.newGame(names.map((n, i) => n.trim() || `Spieler ${i + 1}`), goalLocal, Object.assign({}, localRules, { jumpIn: false }));
     mode = "local"; hidden = true; store.set(K.local, L); render(); wake();
   });
   $("#resumeBtn").addEventListener("click", () => {
@@ -750,6 +806,8 @@
   }
   $("#menuBtn").addEventListener("click", () => {
     scoreList($("#menuScores"), -1);
+    const on = activeNames(rules());
+    $("#menuRules").textContent = on.length ? `Hausregeln: ${on.join(", ")}.` : "Keine Hausregeln, es gelten die normalen Regeln.";
     const box = $("#menuActions"); box.innerHTML = "";
     if (mode === "local") {
       box.append(

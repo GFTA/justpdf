@@ -39,7 +39,7 @@ test("create, join, start and play over WebSockets", async () => {
 
   const a = client(port), b = client(port);
   await a.open; await b.open;
-  a.send({ t: "create", name: "Anna", goal: 250, chaos: true });
+  a.send({ t: "create", name: "Anna", goal: 250, rules: { chaos: true, bogus: true } });
   const joined = await a.next((m) => m.t === "joined");
   b.send({ t: "join", code: joined.code.toLowerCase(), name: "Ben" });
   await b.next((m) => m.t === "joined");
@@ -49,13 +49,18 @@ test("create, join, start and play over WebSockets", async () => {
   b.send({ t: "join", code: joined.code, name: "anna" });
   assert.match((await b.next((m) => m.t === "error")).msg, /vergeben/);
 
+  b.send({ t: "rules", rules: { stack: true } }); // not the host: ignored
+  a.send({ t: "rules", rules: { chaos: true, stack: true } });
+  const ruled = await b.next((m) => m.t === "room" && m.rules.stack);
+  assert.deepStrictEqual(ruled.rules, { stack: true, skipAfterDraw: false, drawUntil: false, sevenZero: false, jumpIn: false, chaos: true });
+
   b.send({ t: "start" });
   assert.match((await b.next((m) => m.t === "error")).msg, /Nur/);
   a.send({ t: "start" });
   const sa = await a.next((m) => m.t === "room" && m.view);
   const sb = await b.next((m) => m.t === "room" && m.view);
   assert.strictEqual(sa.view.hand.length, 7);
-  assert.strictEqual(sa.chaos, true);
+  assert.strictEqual(sa.view.rules.chaos, true);
   assert.strictEqual(sa.view.deckCount + 1 + 14, 140);
   assert.strictEqual(sb.view.players[0].count, 7);
   assert.notDeepStrictEqual(sa.view.hand, sb.view.hand);
