@@ -197,6 +197,7 @@
     if (!myTurn()) return;
     if (aimCell == null || !canShoot(aimAt)) { toast("Tippe zuerst auf ein Feld, um zu zielen."); return; }
     if (inflight) return;
+    if (!sonarMode && V.players[aimAt].marks[aimCell] !== ".") { toast("Da wurde schon hingeschossen."); shakeBoard(); return; }
     const a = { t: sonarMode ? "sonar" : "shoot", target: aimAt, cell: aimCell };
     if (mode === "online") { inflight = true; setTimeout(() => { inflight = false; }, 3000); }
     if (doAct(a) && mode === "online") { aimCell = null; sonarMode = false; }
@@ -390,10 +391,11 @@
     el.innerHTML = boardHTML(o);
   }
 
+  const desktop = matchMedia("(min-width:900px) and (min-height:700px)");
   function layoutBoard() {
     const wrap = $("#boardWrap"), b = $("#board");
     if (!wrap.offsetParent) return;
-    const s = Math.floor(Math.min(wrap.clientWidth, wrap.clientHeight, 480));
+    const s = Math.floor(Math.min(wrap.clientWidth, wrap.clientHeight, desktop.matches ? 640 : 480));
     if (s > 0) b.style.setProperty("--bs", s + "px");
   }
   window.addEventListener("resize", () => { if (V) layoutBoard(); });
@@ -443,6 +445,8 @@
     }
     const oppsEl = $("#opps");
     oppsEl.innerHTML = opps;
+    $("#roundInfo").innerHTML = `Runde <b>${V.round}</b> · ${V.goal === 1 ? "eine Runde" : `bis ${V.goal} Siege`}` +
+      (P ? ` · ${mode === "online" ? "du" : esc(P.name)}: <b>${P.wins}</b> ${P.wins === 1 ? "Sieg" : "Siege"}` : "");
     const act = oppsEl.querySelector(".opp.sel") || oppsEl.querySelector(".opp.active");
     if (act) oppsEl.scrollLeft = act.offsetLeft - (oppsEl.clientWidth - act.offsetWidth) / 2;
 
@@ -570,6 +574,8 @@
         `<span class="hint">&nbsp;${V.shotsLeft} ${V.shotsLeft === 1 ? "Schuss" : "Schüsse"} übrig</span>`;
     }
     $("#reactBtn").hidden = mode !== "online";
+    $("#keys").innerHTML = placing ? "<kbd>R</kbd> oder Rechtsklick dreht · <kbd>Esc</kbd> legt zurück"
+      : myTurn() ? `<kbd>←↑→↓</kbd> zielen · <kbd>Enter</kbd> Feuer · <kbd>1</kbd>–<kbd>${Math.max(1, n - 1)}</kbd> Gegner${show.sonarBtn ? " · <kbd>S</kbd> Sonar" : ""}` : "";
 
     // turn change feedback
     const key = `${V.round}:${V.turn}:${V.cur}`;
@@ -585,6 +591,63 @@
   }
 
   $("#board").addEventListener("click", (e) => { const b = e.target.closest("[data-c]"); if (b) tapBoard(+b.dataset.c); });
+
+  // desktop: while placing, the held ship follows the mouse; right click turns it
+  function preview(c) {
+    for (const el of $("#board").querySelectorAll(".ghost, .bad")) el.classList.remove("ghost", "bad");
+    if (c == null || !draft || pick == null || !V || V.phase !== "place") return;
+    const cells = G.shipCells(V.size, c, draft[pick].len, horiz);
+    const others = draft.filter((x, i) => i !== pick && x.cells).map((x) => x.cells);
+    const cls = G.placeError(V.size, V.rules.touch, others.concat([cells])) ? "bad" : "ghost";
+    for (const x of cells) { const el = $(`#board [data-c="${x}"]`); if (el) el.classList.add(cls); }
+  }
+  let hoverCell = null;
+  $("#board").addEventListener("mouseover", (e) => { const b = e.target.closest("[data-c]"); hoverCell = b ? +b.dataset.c : null; preview(hoverCell); });
+  $("#board").addEventListener("mouseleave", () => { hoverCell = null; preview(null); });
+  $("#board").addEventListener("contextmenu", (e) => {
+    if (!V || V.phase !== "place" || pick == null) return;
+    e.preventDefault(); horiz = !horiz; renderGame(); preview(hoverCell);
+  });
+
+  // desktop: arrows aim, Enter fires, 1-3 pick an opponent, S sonar, R turns a ship, Esc closes
+  document.addEventListener("keydown", (e) => {
+    if (e.target.closest("input, textarea") || e.ctrlKey || e.metaKey || e.altKey) return;
+    const open = ["#menu", "#reactBar"].find((s) => !$(s).hidden);
+    if (e.key === "Escape") {
+      if (open) $(open).hidden = true;
+      else if (V && V.phase === "place" && pick != null) { pick = null; renderGame(); }
+      else if (aimCell != null || sonarMode) { aimCell = null; sonarMode = false; if (V) renderGame(); }
+      return;
+    }
+    if (open || $("#game").hidden || !$("#handoff").hidden || !$("#roundEnd").hidden || !V) return;
+    const k = e.key.toLowerCase();
+    if (V.phase === "place") {
+      if (k === "r") { $("#rotBtn").click(); preview(hoverCell); e.preventDefault(); }
+      return;
+    }
+    if (/^[1-9]$/.test(k)) {
+      const chip = $("#opps").children[+k - 1];
+      if (chip) { chip.click(); e.preventDefault(); }
+      return;
+    }
+    if (!myTurn() || !canShoot(focus)) return;
+    const n = V.size, moves = { arrowleft: [0, -1], arrowright: [0, 1], arrowup: [-1, 0], arrowdown: [1, 0] };
+    if (moves[k]) {
+      e.preventDefault();
+      let c = aimCell != null && aimAt === focus ? aimCell : V.players[focus].marks.indexOf(".");
+      if (aimCell != null && aimAt === focus) {
+        const r = Math.min(n - 1, Math.max(0, Math.floor(c / n) + moves[k][0])), q = Math.min(n - 1, Math.max(0, (c % n) + moves[k][1]));
+        c = r * n + q;
+      }
+      aimCell = Math.max(0, c); aimAt = focus; renderGame();
+    } else if (k === "enter" || k === " ") {
+      e.preventDefault();
+      if (aimCell != null && aimAt === focus) {
+        const m = V.players[focus].marks[aimCell];
+        if (!sonarMode && m !== ".") { toast("Da wurde schon hingeschossen."); shakeBoard(); } else fire();
+      }
+    } else if (k === "s" && V.rules.sonar && !V.players[V.me].sonar) { sonarMode = !sonarMode; renderGame(); }
+  });
   $("#opps").addEventListener("click", (e) => {
     const b = e.target.closest("[data-seat]"); if (!b || !V || V.phase === "place") return;
     const i = +b.dataset.seat;
@@ -768,12 +831,15 @@
     $("#addBot").hidden = !host || R.members.length >= G.MAX_PLAYERS;
     $("#startOnline").hidden = !host;
     $("#startOnline").disabled = R.members.length < 2;
+    $("#startOnline").textContent = R.members.length < 2 ? "Warte auf Mitspieler …" : "Spiel starten";
     for (const [id, list, cur] of [["#sizeOnline", SIZES, R.size], ["#goalOnline", GOALS, R.goal]]) {
       const el = $(id), k = cur + ":" + host;
       if (el.dataset.k !== k) { el.dataset.k = k; el.innerHTML = segHTML(list, cur); for (const b of el.children) b.disabled = !host; }
     }
     const rl = $("#rulesLobby"), key = JSON.stringify(R.rules) + host;
     if (rl.dataset.k !== key) { rl.dataset.k = key; rl.innerHTML = rulesHTML(R.rules || {}, host, "o"); }
+    const onR = activeNames(R.rules);
+    $("#rulesLobbySum").textContent = onR.length ? onR.join(", ") : "keine";
     $("#rulesLobbyHint").textContent = host ? "Tippe an, was gelten soll. Alle sehen deine Auswahl." : `${R.members[R.host].name} legt die Regeln fest.`;
     const humansOn = R.members.filter((m) => !m.bot && m.online).length, humansAll = R.members.filter((m) => !m.bot).length;
     $("#lobbyHint").textContent = host

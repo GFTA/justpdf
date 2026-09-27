@@ -40,13 +40,13 @@ button{font:inherit;color:inherit;touch-action:manipulation;cursor:pointer}
 button:disabled{cursor:default}
 button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 [hidden]{display:none!important}
-#app{height:100%;display:flex;flex-direction:column;max-width:720px;margin:0 auto}
+#app{height:100%;display:flex;flex-direction:column;max-width:1120px;margin:0 auto}
 
 /* ---------- buttons & fields ---------- */
 .btn{border:0;border-radius:14px;padding:14px 20px;font-weight:800;font-size:16px;background:var(--surface);
   box-shadow:inset 0 0 0 1.5px var(--line)}
 .btn:active{transform:translateY(1px)}
-.btn:disabled{opacity:.45}
+.btn:disabled{background:var(--surface);color:var(--muted);box-shadow:inset 0 0 0 1.5px var(--line);transform:none}
 .btn-primary{background:var(--accent);color:#231a05;box-shadow:0 4px 0 #b78d12}
 .btn-primary:active{box-shadow:0 2px 0 #b78d12;transform:translateY(2px)}
 .btn-ghost{background:transparent;box-shadow:inset 0 0 0 1.5px var(--line)}
@@ -95,7 +95,10 @@ h1 span{color:var(--accent)}
 .link{display:flex;gap:8px;align-items:center;background:var(--bg2);border-radius:12px;padding:6px 6px 6px 12px;box-shadow:inset 0 0 0 1.5px var(--line)}
 .link code{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;-webkit-user-select:all;user-select:all}
 .link .btn{padding:8px 12px;font-size:14px}
-#startOnline{position:sticky;bottom:0;z-index:2;box-shadow:0 4px 0 #b78d12,0 -14px 24px 6px var(--bg)}
+/* the lobby buttons stay reachable at the bottom on an opaque bar, never over the rules */
+.lobby-actions{position:sticky;bottom:-32px;z-index:3;display:flex;flex-direction:column;gap:10px;
+  margin:auto -16px -32px;padding:14px 16px 32px;background:var(--bg);box-shadow:0 -1px 0 var(--line),0 -16px 20px -8px var(--bg)}
+.cols,.col{display:flex;flex-direction:column;gap:22px}
 .members{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
 .members li{display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:12px;background:var(--bg2);box-shadow:inset 0 0 0 1.5px var(--line);min-height:48px}
 .members .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
@@ -157,6 +160,8 @@ button.cell{cursor:crosshair}
 /* ---------- game ---------- */
 #game{flex:1;display:flex;flex-direction:column;min-height:0}
 .topbar{display:flex;align-items:flex-start;gap:8px;padding:10px 16px 0}
+.roundinfo{display:none;flex:none;align-self:center;font-size:13px;font-weight:700;color:var(--muted);letter-spacing:.04em;white-space:nowrap}
+.roundinfo b{color:var(--text)}
 .opps{flex:1;min-width:0;display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:3px 3px 8px;position:relative}
 .opps::-webkit-scrollbar{display:none}
 .opp{position:relative;flex:0 0 auto;width:104px;display:flex;flex-direction:column;align-items:flex-start;gap:5px;padding:8px 9px 8px;border:0;text-align:left;border-radius:14px;background:var(--bg2);box-shadow:inset 0 0 0 1.5px var(--line)}
@@ -279,6 +284,41 @@ button.cell{cursor:crosshair}
 #flash span.blue{color:var(--accent)}
 #flash small{display:block;font-size:.26em;color:#fff;text-shadow:2px 2px 0 #1b1325;margin-top:.3em}
 @keyframes bang{0%{transform:scale(.3) rotate(-12deg);opacity:0}30%{transform:scale(1.1) rotate(-6deg);opacity:1}100%{transform:scale(1.35) rotate(-4deg);opacity:0}}
+/* ---------- desktop ---------- */
+@media (hover:hover) and (pointer:fine){
+  .board:not(.locked) button.cell:hover{box-shadow:inset 0 0 0 2px var(--accent)}
+  .opp:hover,.mine:hover .board{filter:brightness(1.12)}
+  .btn:not(:disabled):hover{filter:brightness(1.08)}
+  .harbor button:hover{color:var(--text)}
+}
+@media (min-width:900px) and (min-height:700px){
+  #home > *{width:100%;max-width:560px;align-self:center}
+  #lobby{padding-inline:24px}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:32px;align-items:start}
+  .lobby-actions{flex-direction:row-reverse;margin-inline:-24px;padding-inline:24px}
+  .lobby-actions .btn{flex:1}
+  #game{display:grid;grid-template-columns:minmax(0,1fr) 360px;grid-template-rows:auto minmax(0,1fr);column-gap:24px;padding:0 24px 20px}
+  .topbar{grid-column:1/-1;padding:14px 0 4px;gap:12px}
+  .roundinfo{display:block}
+  .opp{width:128px;padding:10px 11px}
+  .opp .oname{font-size:14px}
+  .opp .fleet i{height:6px;width:calc(var(--l) * 6px)}
+  .arena{padding:8px 0 0}
+  .bhead,.placebar{max-width:640px}
+  .btitle{font-size:22px}
+  .harbor{width:100%;max-width:640px;margin:0;padding:2px 0;flex-wrap:wrap}
+  .lastmove{font-size:14px}
+  .dock{flex-direction:column;align-self:start;margin-top:8px;border-radius:22px;padding:18px;gap:16px;box-shadow:inset 0 0 0 1.5px var(--line)}
+  .dock.myturn{box-shadow:inset 0 0 0 2px var(--accent)}
+  .dock.placing{margin-top:48px}
+  .mine .board{--bs:324px}
+  .mine .veil{--bs:324px}
+  .mine .fleet i{height:6px;width:calc(var(--l) * 6px)}
+  .who b{font-size:20px}
+  .dstat .keys{display:block}
+}
+.keys{display:none;font-size:12px;color:var(--muted);line-height:1.5}
+.keys kbd{font:inherit;font-weight:800;color:var(--text);background:var(--surface);border-radius:5px;padding:0 5px;box-shadow:inset 0 0 0 1px var(--line)}
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{animation:none!important;transition:none!important}
 }
@@ -346,6 +386,7 @@ button.cell{cursor:crosshair}
 
   <!-- ===== lobby ===== -->
   <section id="lobby" class="screen" hidden aria-label="Warteraum">
+    <div class="cols"><div class="col">
     <div class="panel">
       <div class="label" style="text-align:center">Raum-Code</div>
       <div class="roomcode" id="roomCode"></div>
@@ -359,24 +400,31 @@ button.cell{cursor:crosshair}
       <button class="btn btn-ghost" id="addBot" type="button">+ Computer-Gegner</button>
       <p class="hint" id="lobbyHint"></p>
     </div>
+    </div><div class="col">
     <div class="panel">
       <div class="label">Spielfeld</div>
       <div class="seg" id="sizeOnline" role="group" aria-label="Spielfeld"></div>
       <div class="label">Spielziel</div>
       <div class="seg" id="goalOnline" role="group" aria-label="Spielziel"></div>
     </div>
-    <div class="panel">
-      <div class="label">Hausregeln</div>
-      <p class="hint" id="rulesLobbyHint"></p>
-      <div class="rules-list" id="rulesLobby"></div>
+    <details class="houserules" id="rulesLobbyBox">
+      <summary><span class="label">Hausregeln</span><span class="rules-sum" id="rulesLobbySum"></span></summary>
+      <div class="panel">
+        <p class="hint" id="rulesLobbyHint"></p>
+        <div class="rules-list" id="rulesLobby"></div>
+      </div>
+    </details>
+    </div></div>
+    <div class="lobby-actions">
+      <button class="btn btn-primary btn-block" id="startOnline" type="button">Spiel starten</button>
+      <button class="btn btn-ghost btn-block" id="leaveLobby" type="button">Raum verlassen</button>
     </div>
-    <button class="btn btn-primary btn-block" id="startOnline" type="button">Spiel starten</button>
-    <button class="btn btn-ghost btn-block" id="leaveLobby" type="button">Raum verlassen</button>
   </section>
 
   <!-- ===== table ===== -->
   <section id="game" hidden aria-label="Spieltisch">
     <div class="topbar">
+      <div class="roundinfo" id="roundInfo"></div>
       <div class="opps" id="opps"></div>
       <button class="iconbtn" id="reactBtn" type="button" aria-label="Reaktion senden" hidden>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 14.5c1.8 2 5.2 2 7 0"/><path d="M9 9.5h.01M15 9.5h.01" stroke-width="3"/></svg>
@@ -415,6 +463,7 @@ button.cell{cursor:crosshair}
           <button class="btn btn-primary" id="passBtn" type="button" hidden></button>
           <button class="btn" id="resultBtn" type="button" hidden>Ergebnis zeigen</button>
         </div>
+        <div class="keys" id="keys"></div>
       </div>
     </div>
   </section>
@@ -453,6 +502,7 @@ button.cell{cursor:crosshair}
           <li><b>Wasser</b> ist ein weißer Punkt, <b>Treffer</b> ein rotes Kreuz. Sind alle Teile eines Schiffs getroffen, ist es <b>versenkt</b>, und alle erfahren, welches Schiff es war.</li>
           <li>Alle Schüsse sind für alle sichtbar. Du kannst also auch ein Schiff fertig versenken, das jemand anderes angeschossen hat.</li>
           <li>Wessen Flotte komplett versenkt ist, scheidet aus. Wer als Letzter noch Schiffe hat, gewinnt die Runde, im Team gewinnt ihr zusammen.</li>
+          <li>Am Computer: Feld anklicken zum Zielen, <b>Pfeiltasten</b> bewegen das Fadenkreuz, <b>Enter</b> feuert, <b>1–3</b> wählt den Gegner, <b>S</b> schaltet das Sonar um. Beim Aufstellen dreht <b>R</b> oder ein Rechtsklick das Schiff. <b>Esc</b> schließt Fenster.</li>
           <li>Hausregeln wie „Treffer = nochmal“, Salve oder Sonar legt der Host im Warteraum fest. Welche gelten, steht unter diesem Abschnitt.</li>
         </ul>
       </details>

@@ -41,6 +41,11 @@ Schiffe dürfen sich berühren (sonst wird das Wasser rund um versenkte Schiffe
 automatisch aufgedeckt) · Sonar (einmal pro Runde ein 3×3-Feld abhorchen) ·
 Teams 2 gegen 2.
 
+**Am Computer** (Desktop-Modus ab 900 px Breite): breites Layout mit großem Zielfeld
+und der eigenen Flotte groß daneben, Hover-Effekte, beim Aufstellen folgt das Schiff
+der Maus (Rechtsklick dreht). Tasten: Pfeile zielen, Enter feuert, 1–3 wählt den
+Gegner, S Sonar, R dreht beim Aufstellen, Esc schließt Fenster.
+
 Online gibt es **Emoji-Reaktionen**, dazu Töne, Vibration und Konfetti für den Sieger
 (im Menü abschaltbar). Der Host kann einen abwesenden Spieler überspringen, jeder kann
 aufgeben.
@@ -65,8 +70,8 @@ Der Container startet nach einem Neustart des Mini-PCs von selbst
 ### Über einen Cloudflare-Tunnel (von überall erreichbar, mit HTTPS)
 
 Läuft auf dem Mini-PC schon ein `cloudflared`-Container, hängt sich das Spiel in dessen
-Docker-Netzwerk. Im Tunnel zeigt dann ein Hostname (etwa `schiffe.cool-kidz.net`) auf
-`http://schiffe:8080`.
+Docker-Netzwerk. Im Tunnel `debian-main` ist dafür schon eingetragen:
+`schiffe.cool-kidz.net` → `http://schiffe:8080` (samt DNS-Eintrag).
 
 ```sh
 echo "TUNNEL_NETWORK=<netzwerk-von-cloudflared>" > .env   # docker inspect cloudflared
