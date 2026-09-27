@@ -39,7 +39,7 @@ test("create, join, start and play over WebSockets", async () => {
 
   const a = client(port), b = client(port);
   await a.open; await b.open;
-  a.send({ t: "create", name: "Anna", goal: 250 });
+  a.send({ t: "create", name: "Anna", goal: 250, chaos: true });
   const joined = await a.next((m) => m.t === "joined");
   b.send({ t: "join", code: joined.code.toLowerCase(), name: "Ben" });
   await b.next((m) => m.t === "joined");
@@ -55,6 +55,8 @@ test("create, join, start and play over WebSockets", async () => {
   const sa = await a.next((m) => m.t === "room" && m.view);
   const sb = await b.next((m) => m.t === "room" && m.view);
   assert.strictEqual(sa.view.hand.length, 7);
+  assert.strictEqual(sa.chaos, true);
+  assert.strictEqual(sa.view.deckCount + 1 + 14, 140);
   assert.strictEqual(sb.view.players[0].count, 7);
   assert.notDeepStrictEqual(sa.view.hand, sb.view.hand);
 

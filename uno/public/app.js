@@ -74,23 +74,41 @@
   const buzz = (ms) => { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} };
 
   // ---------- actions ----------
-  function doAct(a) {
-    if (mode === "local") {
-      const before = L.turn, actor = L.cur;
-      const res = G.act(L, actor, a);
-      if (!res.ok) { toast(res.error); return false; }
-      sel = null;
-      for (const ev of res.events || []) {
-        if (ev.t === "uno") flashUno();
-        if (ev.t === "penalty") toast(`${L.players[ev.pi].name} hat UNO vergessen: 2 Strafkarten!`);
-        if (ev.t === "drew" && L.turn !== before) {
-          const c = L.players[ev.pi].hand.find((x) => x.id === ev.id);
-          if (c) toast(`Gezogen: ${G.cardName(c)}. Passt nicht, dein Zug ist vorbei.`);
-        }
+  function localEvents(events, turnBefore) {
+    for (const ev of events || []) {
+      if (ev.t === "uno") flashUno(L.players[ev.pi].name);
+      if (ev.t === "penalty") toast(`${L.players[ev.pi].name} war zu langsam: 2 Strafkarten!`);
+      if (ev.t === "drew" && L.turn !== turnBefore) {
+        const c = L.players[ev.pi].hand.find((x) => x.id === ev.id);
+        if (c) toast(`Gezogen: ${G.cardName(c)}. Passt nicht, dein Zug ist vorbei.`);
       }
+    }
+  }
+  // local mode keeps its own clock for the UNO window
+  let localUnoT = null;
+  function scheduleLocalUno() {
+    clearTimeout(localUnoT);
+    if (mode !== "local" || !L) return;
+    const ms = G.nextDeadline(L);
+    if (ms < 0) return;
+    localUnoT = setTimeout(() => {
+      if (mode !== "local" || !L) return;
+      localEvents(G.tick(L));
+      store.set(K.local, L); render(); scheduleLocalUno();
+    }, ms + 30);
+  }
+
+  function doAct(a, actor) {
+    if (mode === "local") {
+      const before = L.turn;
+      const res = G.act(L, actor == null ? L.cur : actor, a);
+      localEvents(res.events, before);
+      if (!res.ok) { toast(res.error); store.set(K.local, L); render(); return false; }
+      sel = null;
       if (L.phase !== "roundEnd" && L.turn !== before) hidden = true;
       store.set(K.local, L);
       render();
+      scheduleLocalUno();
       return true;
     }
     if (mode === "online") {
@@ -122,32 +140,59 @@
   }
 
   // ---------- drag and drop ----------
-  let drag = null;
+  let drag = null, renderPending = false;
   function dropZone(kind, y) {
     const dock = $("#dock").getBoundingClientRect();
     if (kind === "card") return y < dock.top - 10;
     return y > dock.top - 30;
   }
+  // iOS Safari sends pointermove/up to the element the finger went down on, even if a
+  // re-render removed it from the page; then nothing reaches window. So we listen on
+  // that element too, never re-render during a drag, and drop a stale drag on the next touch.
+  const seen = new WeakSet();
+  const once = (e) => { if (seen.has(e)) return false; seen.add(e); return true; };
+  function onElMove(e) { if (once(e)) onMove(e); }
+  function onElUp(e) { if (once(e)) endDrag(e, false); }
+  function onElCancel(e) { if (once(e)) endDrag(e, true); }
+  function abortDrag() {
+    if (!drag) return;
+    const d = drag; drag = null;
+    finishDrag(d);
+  }
+  function finishDrag(d) {
+    d.src.removeEventListener("pointermove", onElMove);
+    d.src.removeEventListener("pointerup", onElUp);
+    d.src.removeEventListener("pointercancel", onElCancel);
+    if (d.ghost) d.ghost.remove();
+    $("#discard").classList.remove("drop"); $("#dock").classList.remove("drop"); $("#drawPile").classList.remove("dragging");
+    const el = d.kind === "card" && document.querySelector(`#hand [data-id="${d.id}"]`);
+    if (el) el.classList.remove("lifted");
+    if (renderPending) { renderPending = false; render(); }
+  }
   function onDown(e) {
-    if (e.button > 0 || drag) return;
+    if (e.button > 0) return;
+    if (drag) abortDrag();
     const cardEl = e.target.closest("#hand .card[data-id]");
     const deckEl = e.target.closest("#drawPile");
-    if (cardEl) drag = { kind: "card", id: +cardEl.dataset.id, el: cardEl };
-    else if (deckEl) drag = { kind: "deck", el: deckEl.querySelector(".card:last-child") };
+    if (cardEl) drag = { kind: "card", id: +cardEl.dataset.id, el: cardEl, src: cardEl };
+    else if (deckEl) drag = { kind: "deck", el: deckEl.querySelector(".card:last-child"), src: deckEl };
     else return;
     Object.assign(drag, { pid: e.pointerId, x0: e.clientX, y0: e.clientY, active: false });
+    drag.src.addEventListener("pointermove", onElMove);
+    drag.src.addEventListener("pointerup", onElUp);
+    drag.src.addEventListener("pointercancel", onElCancel);
   }
   function onMove(e) {
     if (!drag || e.pointerId !== drag.pid) return;
     const dx = e.clientX - drag.x0, dy = e.clientY - drag.y0;
     if (!drag.active) {
       if (Math.hypot(dx, dy) < 9) return;
-      if (drag.kind === "card" && Math.abs(dy) < Math.abs(dx) * 0.8) { drag = null; return; } // sideways: scroll the hand
-      if (!myTurn()) { toast(`Warte, ${V.players[V.cur].name} ist dran.`); drag = null; return; }
-      if (drag.kind === "deck" && V.phase !== "play") { toast("Du hast schon gezogen."); drag = null; return; }
+      if (drag.kind === "card" && Math.abs(dy) < Math.abs(dx) * 0.8) { abortDrag(); return; } // sideways: scroll the hand
+      if (!myTurn()) { toast(`Warte, ${V.players[V.cur].name} ist dran.`); abortDrag(); return; }
+      if (drag.kind === "deck" && V.phase !== "play") { toast("Du hast schon gezogen."); abortDrag(); return; }
       if (drag.kind === "card") {
         const c = V.hand.find((x) => x.id === drag.id);
-        if (!c || !playable(c)) { shake(drag.id); toast(c ? whyNot(c) : ""); drag = null; return; }
+        if (!c || !playable(c)) { const id = drag.id; abortDrag(); shake(id); toast(c ? whyNot(c) : ""); return; }
       }
       const r = drag.el.getBoundingClientRect();
       const g = drag.el.cloneNode(true);
@@ -171,21 +216,17 @@
   function endDrag(e, cancelled) {
     if (!drag || (e && e.pointerId !== drag.pid)) return;
     const d = drag; drag = null;
-    $("#discard").classList.remove("drop"); $("#dock").classList.remove("drop"); $("#drawPile").classList.remove("dragging");
-    if (!d.active) {
-      if (cancelled) return;
-      if (d.kind === "card") tapCard(d.id); else tryDraw();
-      return;
-    }
-    d.ghost.remove();
-    const el = document.querySelector(`#hand [data-id="${d.id}"]`); if (el) el.classList.remove("lifted");
-    if (cancelled || !dropZone(d.kind, e.clientY)) return;
+    finishDrag(d);
+    if (cancelled) return;
+    if (!d.active) { if (d.kind === "card") tapCard(d.id); else tryDraw(); return; }
+    if (!dropZone(d.kind, e.clientY)) return;
     if (d.kind === "card") tryPlay(d.id); else tryDraw();
   }
   document.addEventListener("pointerdown", onDown);
-  window.addEventListener("pointermove", onMove, { passive: false });
-  window.addEventListener("pointerup", (e) => endDrag(e, false));
-  window.addEventListener("pointercancel", (e) => endDrag(e, true));
+  window.addEventListener("pointermove", (e) => { if (once(e)) onMove(e); }, { passive: false });
+  window.addEventListener("pointerup", (e) => { if (once(e)) endDrag(e, false); });
+  window.addEventListener("pointercancel", (e) => { if (once(e)) endDrag(e, true); });
+  window.addEventListener("blur", abortDrag);
   // keyboard users: Enter/Space on a card or the pile
   $("#hand").addEventListener("click", (e) => { const b = e.target.closest("[data-id]"); if (b && e.detail === 0) tapCard(+b.dataset.id); });
   $("#drawPile").addEventListener("click", (e) => { if (e.detail === 0) tryDraw(); });
@@ -197,6 +238,8 @@
   }
 
   function render() {
+    renderUnoCall();
+    if (drag) { renderPending = true; return; }
     if (mode === "local" && L) {
       V = G.view(L, L.cur);
       showScreen("game");
@@ -233,7 +276,7 @@
       const cls = ["opp", i === V.cur && V.phase !== "roundEnd" ? "active" : "", away ? "away" : ""].join(" ");
       opps += `<div class="${cls}" data-seat="${i}" title="${esc(p.name)}: ${p.count} Karten${away ? " (offline)" : ""}">` +
         `<span class="ocount">${p.count}</span><div class="fanmini">${fanMini(p.count)}</div>` +
-        `<div class="oname">${esc(p.name)}</div>${p.count === 1 ? '<span class="ouno">UNO</span>' : ""}</div>`;
+        `<div class="oname">${esc(p.name)}</div>${(V.unoWaits || []).some((w) => w.pi === i) ? '<span class="ouno wait">UNO?</span>' : p.count === 1 ? '<span class="ouno">UNO</span>' : ""}</div>`;
     }
     const oppsEl = $("#opps");
     oppsEl.innerHTML = opps;
@@ -268,10 +311,7 @@
     $("#whoName").textContent = who;
     $("#whoHint").textContent = hint;
     $("#keepBtn").hidden = !(mine && V.phase === "drawn");
-    const unoBtn = $("#unoBtn");
-    unoBtn.hidden = !(mine && V.hand.length === 2);
-    unoBtn.classList.toggle("on", !!V.uno);
-    unoBtn.textContent = V.uno ? "✓ UNO" : "UNO!";
+    $("#chaosTag").hidden = !V.chaos;
 
     // hand
     if (sel != null && !V.hand.some((c) => c.id === sel && playable(c))) sel = null;
@@ -291,6 +331,46 @@
     $("#roundEnd").hidden = V.phase !== "roundEnd";
     if (V.phase === "roundEnd") renderRoundEnd();
   }
+
+  // ---------- big UNO button ----------
+  let unoKey = null, unoEnd = 0, unoTimer = null;
+  function myUnoWait() {
+    if (mode === "local" && L) {
+      const w = (L.unoWaits || [])[0];
+      return w ? { pi: w.pi, ms: w.until - Date.now(), key: `${w.pi}:${w.until}`, name: L.players[w.pi].name } : null;
+    }
+    const v = mode === "online" && R && R.view;
+    if (v && v.unoWaits) {
+      const w = v.unoWaits.find((x) => x.pi === v.me);
+      return w ? { pi: w.pi, ms: w.ms, key: `${R.code}:${v.round}:${w.id}`, name: "" } : null;
+    }
+    return null;
+  }
+  function renderUnoCall() {
+    const w = myUnoWait(), box = $("#unoCall"), big = $("#unoBig");
+    if (!w || w.ms <= 0) { box.hidden = true; unoKey = null; clearInterval(unoTimer); return; }
+    if (unoKey === w.key) return;
+    unoKey = w.key;
+    unoEnd = Date.now() + w.ms;
+    big.dataset.pi = w.pi;
+    $("#unoCallWho").textContent = w.name ? `${w.name}, nur noch eine Karte!` : "Nur noch eine Karte!";
+    big.style.setProperty("--ms", Math.round(w.ms) + "ms");
+    big.classList.remove("run"); void big.offsetWidth; big.classList.add("run");
+    box.hidden = false;
+    buzz([60, 40, 60]);
+    const tickSec = () => {
+      const left = unoEnd - Date.now();
+      if (left <= 0) { clearInterval(unoTimer); box.hidden = true; return; }
+      $("#unoSec").textContent = (left / 1000).toFixed(1).replace(".", ",") + " s";
+    };
+    clearInterval(unoTimer); unoTimer = setInterval(tickSec, 100); tickSec();
+  }
+  $("#unoBig").addEventListener("click", () => {
+    const pi = +$("#unoBig").dataset.pi;
+    $("#unoCall").hidden = true; clearInterval(unoTimer);
+    if (mode === "local") doAct({ t: "uno" }, pi);
+    else if (!wsSend({ t: "act", a: { t: "uno" } })) toast("Keine Verbindung zum Server.");
+  });
 
   function layoutHand() {
     const hand = $("#hand"), first = hand.querySelector(".card");
@@ -377,7 +457,7 @@
     const host = R.you === R.host;
     $("#startOnline").hidden = !host;
     $("#startOnline").disabled = R.members.length < 2;
-    const goalTxt = R.goal ? `Gespielt wird bis ${R.goal} Punkte.` : "Gespielt wird eine Runde.";
+    const goalTxt = (R.goal ? `Gespielt wird bis ${R.goal} Punkte.` : "Gespielt wird eine Runde.") + (R.chaos ? " Chaos-Modus ist an." : "");
     $("#lobbyHint").textContent = host
       ? (R.members.length < 2 ? `Warte auf Mitspieler. ${goalTxt}` : `${on} von ${R.members.length} online. ${goalTxt}`)
       : `Warte, bis ${R.members[R.host].name} das Spiel startet. ${goalTxt}`;
@@ -434,7 +514,7 @@
         const v = m.view;
         for (const ev of m.events || []) {
           if (ev.t === "uno") flashUno(ev.pi === v.me ? "" : v.players[ev.pi].name);
-          if (ev.t === "penalty") toast(ev.pi === v.me ? "UNO vergessen: 2 Strafkarten!" : `${v.players[ev.pi].name} hat UNO vergessen: 2 Strafkarten!`);
+          if (ev.t === "penalty") toast(ev.pi === v.me ? "Zu langsam: 2 Strafkarten!" : `${v.players[ev.pi].name} war zu langsam: 2 Strafkarten!`);
           if (ev.t === "drew" && ev.pi === v.me && v.drawnId == null) {
             const c = v.hand.find((x) => x.id === ev.id);
             if (c) toast(`Gezogen: ${G.cardName(c)}. Passt nicht, dein Zug ist vorbei.`);
@@ -459,6 +539,10 @@
   $("#goalLocal").addEventListener("click", (e) => { const b = e.target.closest("[data-goal]"); if (b) { goalLocal = +b.dataset.goal; renderHome(); } });
 
   $("#myName").value = store.get(K.me) || "";
+  for (const id of ["chaosLocal", "chaosOnline"]) {
+    $("#" + id).checked = !!store.get("passuno." + id);
+    $("#" + id).addEventListener("change", (e) => store.set("passuno." + id, e.target.checked));
+  }
   $("#myName").addEventListener("input", (e) => store.set(K.me, e.target.value));
   $("#joinCode").addEventListener("input", (e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z]/g, ""); });
   const myName = () => {
@@ -478,7 +562,7 @@
   $("#createBtn").addEventListener("click", () => {
     const n = myName(); if (!n) return;
     store.del(K.online);
-    wsSend({ t: "create", name: n, goal: goalOnline });
+    wsSend({ t: "create", name: n, goal: goalOnline, chaos: $("#chaosOnline").checked });
   });
 
   $("#plist").addEventListener("input", (e) => { if (e.target.dataset.i != null) { names[+e.target.dataset.i] = e.target.value; store.set(K.names, names); } });
@@ -494,12 +578,12 @@
     const el = document.getElementById(`pname-${names.length - 1}`); if (el) el.focus();
   });
   $("#startLocal").addEventListener("click", () => {
-    L = G.newGame(names.map((n, i) => n.trim() || `Spieler ${i + 1}`), goalLocal);
+    L = G.newGame(names.map((n, i) => n.trim() || `Spieler ${i + 1}`), goalLocal, { chaos: $("#chaosLocal").checked });
     mode = "local"; hidden = true; store.set(K.local, L); render(); wake();
   });
   $("#resumeBtn").addEventListener("click", () => {
     L = store.get(K.local); if (!L) return render();
-    mode = "local"; hidden = true; render(); wake();
+    mode = "local"; hidden = true; render(); wake(); scheduleLocalUno();
   });
 
   $("#startOnline").addEventListener("click", () => wsSend({ t: "start" }));
@@ -512,7 +596,6 @@
   });
 
   $("#hoBtn").addEventListener("click", () => { hidden = false; render(); });
-  $("#unoBtn").addEventListener("click", () => doAct({ t: "uno" }));
   $("#keepBtn").addEventListener("click", () => doAct({ t: "keep" }));
   $("#picker").addEventListener("click", (e) => {
     const b = e.target.closest("[data-color]"); if (!b) return;
@@ -545,7 +628,7 @@
     const box = $("#menuActions"); box.innerHTML = "";
     if (mode === "local") {
       box.append(
-        armed("Runde neu mischen", () => { L.round--; G.startRound(L); hidden = true; store.set(K.local, L); render(); }),
+        armed("Runde neu mischen", () => { L.round--; G.startRound(L); hidden = true; store.set(K.local, L); render(); scheduleLocalUno(); }),
         armed("Spiel beenden", () => { store.del(K.local); L = null; mode = null; render(); })
       );
     } else if (mode === "online" && R) {
@@ -564,7 +647,7 @@
     try { if ("wakeLock" in navigator && !lock) { lock = await navigator.wakeLock.request("screen"); lock.addEventListener("release", () => { lock = null; }); } } catch (e) {}
   }
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState !== "visible") return;
+    if (document.visibilityState !== "visible") { abortDrag(); return; }
     if (mode) wake();
     if (wantOnline && !(ws && ws.readyState <= 1)) { retry = 0; connect(); }
   });

@@ -30,11 +30,28 @@ const TYPES = {
 const rooms = new Map();
 /** code -> Set<ws> */
 const sockets = new Map();
+/** code -> timeout that closes the next UNO window */
+const unoTimers = new Map();
+
+function scheduleUno(room) {
+  clearTimeout(unoTimers.get(room.code));
+  unoTimers.delete(room.code);
+  if (!room.state) return;
+  const ms = Uno.nextDeadline(room.state);
+  if (ms < 0) return;
+  unoTimers.set(room.code, setTimeout(() => {
+    unoTimers.delete(room.code);
+    if (!rooms.has(room.code) || !room.state) return;
+    const events = Uno.tick(room.state);
+    if (events.length) { broadcast(room, events); saveRooms(); }
+    scheduleUno(room);
+  }, ms + 30));
+}
 
 function loadRooms() {
   try {
     const list = JSON.parse(fs.readFileSync(SAVE_FILE, "utf8"));
-    for (const r of list) if (Date.now() - r.touched < ROOM_TTL) rooms.set(r.code, r);
+    for (const r of list) if (Date.now() - r.touched < ROOM_TTL) { rooms.set(r.code, r); scheduleUno(r); }
     console.log(`${rooms.size} Räume aus ${SAVE_FILE} geladen`);
   } catch (e) { /* first start */ }
 }
@@ -72,7 +89,7 @@ function broadcast(room, events) {
   for (const ws of sockets.get(room.code) || []) {
     if (ws.pid == null) continue;
     send(ws, {
-      t: "room", code: room.code, you: ws.pid, host: room.host, goal: room.goal, members,
+      t: "room", code: room.code, you: ws.pid, host: room.host, goal: room.goal, chaos: !!room.chaos, members,
       view: room.state ? Uno.view(room.state, ws.pid) : null, events: events || []
     });
   }
@@ -107,7 +124,7 @@ function handle(ws, msg) {
       if (!name) return err("Bitte gib deinen Namen ein.");
       if (rooms.size >= MAX_ROOMS) return err("Der Server ist voll. Versuch es später nochmal.");
       const goal = [0, 250, 500].includes(+msg.goal) ? +msg.goal : 500;
-      const r = { code: newCode(), host: 0, goal, members: [{ name, secret: crypto.randomUUID() }], state: null, touched: Date.now() };
+      const r = { code: newCode(), host: 0, goal, chaos: !!msg.chaos, members: [{ name, secret: crypto.randomUUID() }], state: null, touched: Date.now() };
       rooms.set(r.code, r);
       attach(ws, r, 0);
       broadcast(r); saveRooms();
@@ -159,7 +176,7 @@ function handle(ws, msg) {
       if (ws.pid !== room.host) return err("Nur wer den Raum erstellt hat, kann starten.");
       if (room.state) return;
       if (room.members.length < 2) return err("Es braucht mindestens 2 Spieler.");
-      room.state = Uno.newGame(room.members.map((m) => m.name), room.goal);
+      room.state = Uno.newGame(room.members.map((m) => m.name), room.goal, { chaos: room.chaos });
       broadcast(room); saveRooms();
       return;
     }
@@ -167,15 +184,22 @@ function handle(ws, msg) {
       if (!room || !room.state) return;
       const a = msg.a || {};
       if (a.t === "skip" && ws.pid !== room.host) return err("Nur der Host kann Spieler überspringen.");
+      const expired = Uno.tick(room.state); // resolve run-out UNO windows first
       const res = Uno.act(room.state, ws.pid, a);
-      if (!res.ok) return err(res.error);
       room.touched = Date.now();
-      broadcast(room, res.events); saveRooms();
+      if (!res.ok) {
+        err(res.error);
+        if (expired.length) { broadcast(room, expired); saveRooms(); }
+        return;
+      }
+      broadcast(room, expired.concat(res.events || [])); saveRooms();
+      scheduleUno(room);
       return;
     }
     case "end": { // host closes the game and returns everyone to the lobby
       if (!room || ws.pid !== room.host) return;
       room.state = null;
+      scheduleUno(room);
       broadcast(room); saveRooms();
       return;
     }

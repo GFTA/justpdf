@@ -12,8 +12,10 @@ Gespielt wird mit dem Finger: Karte auf den Ablagestapel ziehen, um sie zu legen
 vom verdeckten Stapel zur Hand ziehen (oder antippen), um eine Karte aufzunehmen.
 
 Regeln: Aussetzen, Richtungswechsel (zu zweit = Aussetzen), +2, Farbwahl, +4,
-gezogene Karte direkt legen oder behalten, **UNO!**-Knopf mit 2 Strafkarten bei
-Vergessen, Punktezählung bis 500 / 250 / eine Runde. 2–10 Spieler.
+gezogene Karte direkt legen oder behalten, Punktezählung bis 500 / 250 / eine Runde.
+2–10 Spieler. Wer die vorletzte Karte legt, bekommt einen großen **UNO!**-Knopf und hat
+3 Sekunden Zeit, sonst gibt es 2 Strafkarten. Im **Chaos-Modus** sind alle Sonderkarten
+doppelt im Stapel (140 statt 108 Karten).
 
 ## Auf dem HP Mini installieren
 

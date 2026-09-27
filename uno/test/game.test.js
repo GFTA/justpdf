@@ -3,6 +3,7 @@ const test = require("node:test");
 const assert = require("node:assert");
 const G = require("../public/game.js");
 
+const size = (S) => (S.chaos ? 140 : 108);
 const total = (S) => S.deck.length + S.discard.length + S.players.reduce((a, p) => a + p.hand.length, 0);
 const card = (c, v, id) => ({ id, c, v });
 
@@ -67,18 +68,53 @@ test("reverse with two players acts like skip", () => {
   assert.strictEqual(S.cur, 0);
 });
 
-test("forgetting UNO costs two cards, calling it does not", () => {
-  const S = rig(2);
+test("second-to-last card opens a 3 second UNO window", () => {
+  const S = rig(3);
+  S.cur = 0; S.discard = [card("b", "5", 900)]; S.color = "b";
+  S.players[0].hand = [card("b", "1", 901), card("r", "2", 902)];
+  const res = G.act(S, 0, { t: "play", id: 901 });
+  assert.ok(res.events.some((e) => e.t === "unoWait" && e.pi === 0));
+  assert.strictEqual(S.cur, 1, "play goes on while the window is open");
+  assert.strictEqual(G.act(S, 2, { t: "uno" }).ok, false, "only the waiting player can call");
+  assert.strictEqual(G.act(S, 0, { t: "uno" }).ok, true, "allowed although it is not player 0's turn");
+  assert.strictEqual(S.unoWaits.length, 0);
+  assert.deepStrictEqual(G.tick(S, Date.now() + 60000), []);
+  assert.strictEqual(S.players[0].hand.length, 1);
+});
+
+test("missing the UNO window costs two cards", () => {
+  const S = rig(3);
   S.cur = 0; S.discard = [card("b", "5", 900)]; S.color = "b";
   S.players[0].hand = [card("b", "1", 901), card("r", "2", 902)];
   G.act(S, 0, { t: "play", id: 901 });
+  assert.deepStrictEqual(G.tick(S, Date.now() + 1000), [], "still inside the window");
+  const ev = G.tick(S, Date.now() + G.UNO_MS + 5000);
+  assert.deepStrictEqual(ev, [{ t: "penalty", pi: 0 }]);
   assert.strictEqual(S.players[0].hand.length, 3);
+  assert.strictEqual(G.act(S, 0, { t: "uno" }).ok, false, "too late");
+  assert.strictEqual(G.nextDeadline(S), -1);
+});
 
-  S.cur = 1; S.discard.push(card("b", "3", 903)); S.color = "b"; S.phase = "play";
-  S.players[1].hand = [card("b", "1", 904), card("r", "2", 905)];
-  assert.strictEqual(G.act(S, 1, { t: "uno" }).ok, true);
-  G.act(S, 1, { t: "play", id: 904 });
-  assert.strictEqual(S.players[1].hand.length, 1);
+test("playing the last card without having called UNO costs two cards", () => {
+  const S = rig(2);
+  S.cur = 0; S.discard = [card("b", "5", 900)]; S.color = "b";
+  S.players[0].hand = [card("b", "skip", 901), card("b", "2", 902)];
+  G.act(S, 0, { t: "play", id: 901 }); // skip with two players: own turn again
+  assert.strictEqual(S.cur, 0);
+  G.act(S, 0, { t: "play", id: 902 });
+  assert.strictEqual(S.phase, "play", "no win: penalty cards came first");
+  assert.strictEqual(S.players[0].hand.length, 2);
+});
+
+test("chaos mode doubles every action and wild card", () => {
+  const d = G.buildDeck(true);
+  assert.strictEqual(d.length, 140);
+  const n = (v) => d.filter((c) => c.v === v).length;
+  assert.deepStrictEqual([n("skip"), n("rev"), n("d2"), n("wild"), n("d4"), n("7")], [16, 16, 16, 8, 8, 8]);
+  assert.strictEqual(new Set(d.map((c) => c.id)).size, 140);
+  const S = G.newGame(["a", "b"], 0, { chaos: true });
+  assert.strictEqual(total(S), 140);
+  assert.strictEqual(G.view(S, 0).chaos, true);
 });
 
 test("drawing an unplayable card ends the turn, a playable one can be played or kept", () => {
@@ -112,20 +148,21 @@ test("round end scores the other hands and view hides foreign cards", () => {
   assert.ok(!("hand" in v.players[0]));
   G.act(S, 1, { t: "next" });
   assert.strictEqual(S.round, 2);
-  assert.strictEqual(total(S), 108);
+  assert.strictEqual(total(S), size(S));
 });
 
 test("random games stay consistent", () => {
-  for (let g = 0; g < 200; g++) {
-    const S = G.newGame(["a", "b", "c", "d"].slice(0, 2 + (g % 3)), 0);
+  for (let g = 0; g < 300; g++) {
+    const S = G.newGame(["a", "b", "c", "d"].slice(0, 2 + (g % 3)), 0, { chaos: g % 2 === 1 });
     for (let step = 0; step < 2000 && S.phase !== "roundEnd"; step++) {
       const p = S.players[S.cur];
-      if (p.hand.length === 2) G.act(S, S.cur, { t: "uno" });
+      for (const w of S.unoWaits) if (g % 3) G.act(S, w.pi, { t: "uno" });
+      if (g % 3 === 0) G.tick(S, Date.now() + 10000);
       const c = p.hand.find((x) => (S.phase === "drawn" ? x.id === S.drawnId : true) && G.canPlay(S, x));
       if (c) assert.ok(G.act(S, S.cur, { t: "play", id: c.id, color: "r" }).ok);
       else if (S.phase === "drawn") G.act(S, S.cur, { t: "keep" });
       else G.act(S, S.cur, { t: "draw" });
-      assert.strictEqual(total(S), 108);
+      assert.strictEqual(total(S), size(S));
     }
   }
 });
