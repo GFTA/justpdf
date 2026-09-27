@@ -231,11 +231,22 @@ function lanIps() {
   return ips;
 }
 
+// Scripts get a content hash in their URL (app.js?v=1a2b3c4d), so a phone or a CDN
+// holding an old copy can never mix old and new files after an update.
+const VERSION = crypto.createHash("sha1")
+  .update(fs.readFileSync(path.join(PUBLIC, "game.js")))
+  .update(fs.readFileSync(path.join(PUBLIC, "app.js")))
+  .digest("hex").slice(0, 10);
+const INDEX = fs.readFileSync(path.join(PUBLIC, "index.html"), "utf8")
+  .replace('<script src="game.js"></script>', `<script src="game.js?v=${VERSION}"></script>`)
+  .replace('<script src="app.js"></script>', `<script src="app.js?v=${VERSION}"></script>`)
+  .replace("<head>", `<head>\n<meta name="pass-uno-version" content="${VERSION}">`);
+
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, "http://x");
   if (url.pathname === "/info" || url.pathname === "/pass-uno-server") {
     res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
-    return res.end(JSON.stringify({ uno: true, ips: lanIps(), port: PORT, rooms: rooms.size }));
+    return res.end(JSON.stringify({ uno: true, version: VERSION, ips: lanIps(), port: PORT, rooms: rooms.size }));
   }
   if (url.pathname === "/vendor/qrcode.js") {
     return fs.readFile(QR_LIB, (e, data) => {
@@ -246,14 +257,20 @@ const server = http.createServer((req, res) => {
   }
   let p;
   try { p = decodeURIComponent(url.pathname); } catch (e) { res.writeHead(400); return res.end(); }
-  if (p.endsWith("/")) p += "index.html";
+  if (p === "/" || p === "/index.html") {
+    res.writeHead(200, { "content-type": TYPES[".html"], "cache-control": "no-store" });
+    return res.end(INDEX);
+  }
   const file = path.normalize(path.join(PUBLIC, p));
   if (!file.startsWith(PUBLIC + path.sep)) { res.writeHead(403); return res.end(); }
   fs.readFile(file, (e, data) => {
     if (e) { res.writeHead(404, { "content-type": "text/plain; charset=utf-8" }); return res.end("Nicht gefunden"); }
+    const ext = path.extname(file);
+    const versioned = url.searchParams.get("v") === VERSION && (p === "/app.js" || p === "/game.js");
     res.writeHead(200, {
-      "content-type": TYPES[path.extname(file)] || "application/octet-stream",
-      "cache-control": path.extname(file) === ".png" ? "public, max-age=86400" : "no-cache"
+      "content-type": TYPES[ext] || "application/octet-stream",
+      "cache-control": versioned ? "public, max-age=31536000, immutable"
+        : ext === ".png" || ext === ".svg" ? "public, max-age=86400" : "no-store"
     });
     res.end(data);
   });
@@ -287,7 +304,7 @@ setInterval(() => {
 
 loadRooms();
 server.listen(PORT, HOST, () => {
-  console.log(`Pass-Uno läuft auf Port ${PORT}`);
+  console.log(`Pass-Uno läuft auf Port ${PORT} (Version ${VERSION})`);
   for (const ip of lanIps()) console.log(`  im WLAN öffnen: http://${ip}:${PORT}`);
 });
 

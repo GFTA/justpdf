@@ -2,6 +2,15 @@
 (() => {
   "use strict";
   const G = window.UnoGame;
+  // An old cached game.js next to a new app.js: reload once without cache instead of breaking.
+  if (!G || !G.RULES || !G.normRules) {
+    let tried = false;
+    try { tried = sessionStorage.getItem("passuno.reloaded") === "1"; sessionStorage.setItem("passuno.reloaded", "1"); } catch (e) {}
+    if (!tried) { const u = new URL(location.href); u.searchParams.set("fresh", Date.now()); location.replace(u.toString()); }
+    else document.body.insertAdjacentHTML("afterbegin", '<p style="padding:16px;margin:0;background:#e0393e;color:#fff;font-weight:700">Alte Version im Speicher. Bitte die Seite neu laden (oder den Browser-Cache leeren).</p>');
+    return;
+  }
+  try { sessionStorage.removeItem("passuno.reloaded"); } catch (e) {}
   const $ = (s) => document.querySelector(s);
   const CVAR = { r: "var(--red)", y: "var(--yellow)", g: "var(--green)", b: "var(--blue)" };
   const ORDER = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "skip", "rev", "d2", "wild", "d4"];
@@ -647,17 +656,22 @@
   let ws = null, wantOnline = false, retry = 0, queue = [];
   function connect() {
     if (ws && ws.readyState <= 1) return;
-    ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
-    ws.onopen = () => {
+    // each socket only ever touches itself: a late close of an old socket must not
+    // wipe out the new one (that lost join messages after "room gone")
+    const sock = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+    ws = sock;
+    sock.onopen = () => {
+      if (ws !== sock) { sock.close(); return; }
       retry = 0; clearTimeout(giveUpT);
       if (serverState !== "ok") { serverState = "ok"; server = server || {}; }
       const s = store.get(K.online);
-      if (s && !queue.some((m) => m.t === "create" || m.t === "join")) ws.send(JSON.stringify({ t: "resume", code: s.code, secret: s.secret }));
-      for (const m of queue.splice(0)) ws.send(JSON.stringify(m));
+      if (s && !queue.some((m) => m.t === "create" || m.t === "join")) sock.send(JSON.stringify({ t: "resume", code: s.code, secret: s.secret }));
+      for (const m of queue.splice(0)) sock.send(JSON.stringify(m));
       render();
     };
-    ws.onmessage = (e) => { try { onMsg(JSON.parse(e.data)); } catch (err) { console.error(err); } };
-    ws.onclose = () => {
+    sock.onmessage = (e) => { if (ws !== sock) return; try { onMsg(JSON.parse(e.data)); } catch (err) { console.error(err); } };
+    sock.onclose = () => {
+      if (ws !== sock) return;
       ws = null;
       if (wantOnline) setTimeout(connect, Math.min(8000, 400 * 2 ** retry++));
       render();
@@ -683,6 +697,7 @@
   function onMsg(m) {
     if (m.t === "joined") {
       store.set(K.online, { code: m.code, secret: m.secret });
+      wantOnline = true;
       mode = "online";
       if (location.search) history.replaceState(null, "", location.pathname);
       wake();
@@ -708,8 +723,8 @@
     } else if (m.t === "error") {
       toast(m.msg);
     } else if (m.t === "gone" || m.t === "left") {
-      store.del(K.online); R = null; mode = null; wantOnline = false;
-      if (ws) ws.close();
+      // keep the socket: a join or create sent a moment ago is answered on it
+      store.del(K.online); R = null; mode = null;
       if (m.t === "gone") toast("Diesen Raum gibt es nicht mehr.");
       render();
     }

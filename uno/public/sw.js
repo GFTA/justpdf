@@ -1,5 +1,5 @@
 // Offline cache for the app shell (only active when served over HTTPS).
-const CACHE = "passuno-v3";
+const CACHE = "passuno-v4";
 const FILES = ["./", "index.html", "game.js", "app.js", "manifest.webmanifest", "icon.svg", "icon-180.png", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", (e) => {
