@@ -76,6 +76,13 @@ test("aim help knows where no ship can lie any more", () => {
   assert.strictEqual(G.possible(10, m.join(""), ["D3"])[0], false);
 });
 
+test("avatars: people keep theirs, computer players wear the robot", () => {
+  assert.strictEqual(G.AVATARS.length, 16);
+  const S = G.newGame([{ name: "A", avatar: "🐙" }, { name: "B", avatar: "nope" }, { name: "C", bot: true, avatar: "🐙" }], 1, 10);
+  assert.deepStrictEqual(S.players.map((p) => p.avatar), ["🐙", G.AVATARS[1], "🤖"]);
+  assert.deepStrictEqual(G.view(S, 0).players.map((p) => p.avatar), ["🐙", G.AVATARS[1], "🤖"]);
+});
+
 test("placing, then the first player shoots", () => {
   const S = G.newGame(two(), 1, 10);
   assert.strictEqual(S.phase, "place");

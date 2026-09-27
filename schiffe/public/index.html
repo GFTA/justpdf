@@ -23,10 +23,17 @@
   --text:#f4effb; --muted:#a99cc2;
   --red:#e0393e; --yellow:#f2c230; --green:#2fa35b; --blue:#2d6fd6;
   --sea:#1f2350; --sea2:#252a5c; --hull:#d9d2e6; --wreck:#5b1d2a;
-  --accent:#f2c230;
+  --wreckship:#7e3444; --ring:#fff; --water:#191c40; --dot:rgba(244,239,251,.6); --waterdot:rgba(244,239,251,.22); --kx:#fff; --hot:#4a1a26;
+  --accent:#f2c230; --scrim:rgba(15,10,22,.86); --cs:1;
   --display:"Bowlby One", "Arial Black", Impact, system-ui, sans-serif;
   --ui:"Figtree", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
+/* table designs; "Nacht" is the default without an attribute */
+:root[data-table="felt"]{--bg:#0f2a1f;--bg2:#15372a;--surface:#1c4636;--line:#2b5c48;--text:#eef7f1;--muted:#9cc3b1;--scrim:rgba(6,22,15,.86);--sea:#10363a;--sea2:#154248;--water:#0b2a2d;--hot:#4a1f22}
+:root[data-table="ocean"]{--bg:#0e1a2b;--bg2:#15243a;--surface:#1c3050;--line:#2b4468;--text:#eef3fb;--muted:#9fb4d3;--scrim:rgba(6,12,24,.86);--sea:#123057;--sea2:#173a66;--water:#0c2442}
+:root[data-table="light"]{color-scheme:light;--bg:#eceff5;--bg2:#ffffff;--surface:#e2e7f0;--line:#cbd3e1;--text:#1b2030;--muted:#5b6479;--scrim:rgba(226,231,240,.92);
+  --sea:#cfe0f3;--sea2:#bcd3ee;--hull:#4a5570;--wreck:#e2a3ab;--wreckship:#b8505e;--ring:#1b2030;--water:#e8eef6;--dot:rgba(27,32,48,.55);--waterdot:rgba(27,32,48,.2);--kx:#7e1f2c;--hot:#f6d2d5}
+:root[data-table="light"] .cell.k.s{--kx:#fff}
 *{box-sizing:border-box}
 /* The page itself never scrolls: iOS Safari ignores overflow:hidden on body and would
    otherwise slide the whole page and pull its toolbar over the board. Only inner
@@ -77,7 +84,7 @@ h1 span{color:var(--accent)}
 .prow .rm{flex:none;width:42px;height:42px;border-radius:12px;border:0;background:transparent;color:var(--muted);font-size:22px}
 .prow .kind{flex:none;border:0;border-radius:12px;padding:0 10px;height:48px;min-width:92px;font-weight:800;font-size:13px;background:var(--bg2);box-shadow:inset 0 0 0 1.5px var(--line);color:var(--muted);display:flex;align-items:center;justify-content:center;gap:6px}
 .prow .kind svg{width:18px;height:18px}
-.prow .kind[aria-pressed="true"]{color:var(--text);box-shadow:inset 0 0 0 1.5px var(--blue);background:#1f2350}
+.prow .kind[aria-pressed="true"]{color:var(--text);box-shadow:inset 0 0 0 1.5px var(--blue);background:var(--sea)}
 .seg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;background:var(--bg2);padding:5px;border-radius:14px;box-shadow:inset 0 0 0 1.5px var(--line)}
 .seg.two{grid-template-columns:1fr 1fr}
 .seg button{border:0;border-radius:10px;padding:10px 6px;background:transparent;font-weight:600;line-height:1.2}
@@ -125,14 +132,14 @@ button.cell{cursor:crosshair}
 .cell.s{background:var(--hull);border-radius:8%}
 .cell.s.h0{border-radius:48% 8% 8% 48%} .cell.s.h1{border-radius:8% 48% 48% 8%}
 .cell.s.v0{border-radius:48% 48% 8% 8%} .cell.s.v1{border-radius:8% 8% 48% 48%}
-.cell.o::after{width:28%;height:28%;background:rgba(244,239,251,.6)}
-.cell.w{background:#191c40} .cell.w::after{width:16%;height:16%;background:rgba(244,239,251,.22)}
+.cell.o::after{width:28%;height:28%;background:var(--dot)}
+.cell.w{background:var(--water)} .cell.w::after{width:16%;height:16%;background:var(--waterdot)}
 .cell.x{background:var(--red)}
 .cell.x::after,.cell.k::after{width:62%;height:62%;border-radius:0;background:none;
   background:linear-gradient(45deg,transparent 42%,#fff 42% 58%,transparent 58%),linear-gradient(-45deg,transparent 42%,#fff 42% 58%,transparent 58%)}
 .cell.k{background:var(--wreck)}
-.cell.k.s{background:#7e3444}
-.cell.k::after{opacity:.75}
+.cell.k.s{background:var(--wreckship)}
+.cell.k::after{opacity:.8;background:linear-gradient(45deg,transparent 42%,var(--kx) 42% 58%,transparent 58%),linear-gradient(-45deg,transparent 42%,var(--kx) 42% 58%,transparent 58%)}
 .cell.s.x{background:var(--red)}
 .cell.aim{box-shadow:inset 0 0 0 2px var(--accent),0 0 0 2px var(--accent);z-index:1}
 .cell.aim::before{content:"";position:absolute;inset:18%;border-radius:50%;border:2px solid var(--accent);
@@ -140,10 +147,10 @@ button.cell{cursor:crosshair}
 .cell.area{box-shadow:inset 0 0 0 2px rgba(242,194,48,.7)}
 .cell.son{background:rgba(242,194,48,.18)}
 .cell .sn{position:absolute;inset:0;display:grid;place-items:center;font-family:var(--display);font-size:calc(var(--bs) / var(--n) * .5);color:var(--accent);text-shadow:1px 1px 0 #1b1325;z-index:2;line-height:1}
-.cell.last{z-index:1;box-shadow:0 0 0 2px #fff}
+.cell.last{z-index:1;box-shadow:0 0 0 2px var(--ring)}
 .cell.ghost{background:rgba(242,194,48,.35);box-shadow:inset 0 0 0 1.5px var(--accent)}
 .cell.bad{background:rgba(224,57,62,.45);box-shadow:inset 0 0 0 1.5px var(--red)}
-.cell.s{--hc:var(--hull)} .cell.s.x{--hc:var(--red)} .cell.k.s{--hc:#7e3444}
+.cell.s{--hc:var(--hull)} .cell.s.x{--hc:var(--red)} .cell.k.s{--hc:var(--wreckship)}
 .cell.d1::before,.cell.d2::before{content:"";position:absolute;left:50%;top:50%;width:150%;height:26%;background:var(--hc);border-radius:3px;
   transform-origin:0 50%;transform:translateY(-50%) rotate(45deg);z-index:0;pointer-events:none}
 .cell.d2::before{transform:translateY(-50%) rotate(135deg)}
@@ -182,7 +189,7 @@ button.cell{cursor:crosshair}
 .opp.ping,.mine.ping .board,.duo-own.ping .board{animation:ping .9s ease-out}
 .opp.ping.hot,.mine.ping.hot .board,.duo-own.ping.hot .board{animation:pinghot .9s ease-out}
 @keyframes ping{0%{box-shadow:inset 0 0 0 2px #fff,0 0 0 0 rgba(255,255,255,.7)}100%{box-shadow:inset 0 0 0 1.5px var(--line),0 0 0 12px rgba(255,255,255,0)}}
-@keyframes pinghot{0%{box-shadow:inset 0 0 0 2.5px var(--red),0 0 0 0 rgba(224,57,62,.8);background:#4a1a26}100%{box-shadow:inset 0 0 0 1.5px var(--line),0 0 0 14px rgba(224,57,62,0)}}
+@keyframes pinghot{0%{box-shadow:inset 0 0 0 2.5px var(--red),0 0 0 0 rgba(224,57,62,.8);background:var(--hot)}100%{box-shadow:inset 0 0 0 1.5px var(--line),0 0 0 14px rgba(224,57,62,0)}}
 .opp .oname{max-width:100%;font-size:13px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .opp .fleet i{height:5px;width:calc(var(--l) * 4.5px)}
 .opp .ocount{position:absolute;top:-4px;right:-4px;min-width:22px;height:22px;padding:0 6px;border-radius:11px;display:grid;place-items:center;
@@ -195,12 +202,12 @@ button.cell{cursor:crosshair}
 .iconbtn{flex:none;width:42px;height:42px;border-radius:12px;border:0;background:var(--bg2);box-shadow:inset 0 0 0 1.5px var(--line);display:grid;place-items:center}
 .iconbtn svg{width:22px;height:22px}
 
-.arena{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;gap:8px;padding:6px 16px 8px}
+.arena{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;display:flex;flex-direction:column;align-items:center;gap:8px;padding:6px 16px 8px}
 .bhead{width:100%;max-width:480px;display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:26px}
 .bhead .fleet{justify-content:flex-end;max-width:52%;flex:none}
 .btitle{font-family:var(--display);font-size:18px;line-height:1.1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .btitle small{font-family:var(--ui);font-size:12px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-right:6px}
-.board-wrap{flex:1;min-height:120px;width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px}
+.board-wrap{flex:1 0 auto;min-height:120px;width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px}
 /* desktop with two players: both seas on top of each other, like the board game */
 .duo-own{display:flex;flex-direction:column;align-items:center;gap:6px}
 .duo-own .bhead{width:var(--bs)}
@@ -227,10 +234,10 @@ button.cell{cursor:crosshair}
 .dock{position:relative;background:var(--bg2);border-radius:22px 22px 0 0;box-shadow:0 -1px 0 var(--line);padding:12px 16px 14px;display:flex;gap:14px;align-items:stretch;transition:box-shadow .2s,background .2s}
 .dock.myturn{box-shadow:0 -2px 0 var(--accent)}
 .dock.hit{animation:dockhit .5s}
-@keyframes dockhit{0%,100%{background:var(--bg2)}30%{background:#4a1a26}}
+@keyframes dockhit{0%,100%{background:var(--bg2)}30%{background:var(--hot)}}
 .mine{flex:none;border:0;padding:0;background:none;display:flex;flex-direction:column;gap:6px;align-items:stretch;border-radius:12px}
-.mine .board{--bs:min(31vw,148px)}
-.mine{width:min(31vw,148px)}
+.mine .board{--bs:calc(min(31vw,148px) * var(--cs))}
+.mine{width:calc(min(31vw,148px) * var(--cs))}
 .mine .cap{flex-wrap:wrap;row-gap:4px}
 .mine .cap .fleet{flex-wrap:wrap}
 .mine.sel .board{box-shadow:inset 0 0 0 1.5px #fff}
@@ -261,7 +268,7 @@ button.cell{cursor:crosshair}
 
 /* ---------- overlays ---------- */
 .overlay{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;
-  padding:calc(env(safe-area-inset-top,0px) + 24px) 16px calc(env(safe-area-inset-bottom,0px) + 24px);background:rgba(15,10,22,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+  padding:calc(env(safe-area-inset-top,0px) + 24px) 16px calc(env(safe-area-inset-bottom,0px) + 24px);background:var(--scrim);color:var(--text);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
 .sheet{width:100%;max-width:440px;display:flex;flex-direction:column;gap:14px;background:var(--bg2);border-radius:24px;padding:22px 18px;box-shadow:inset 0 0 0 1.5px var(--line),0 20px 60px rgba(0,0,0,.5);max-height:100%;overflow-y:auto}
 .sheet h2{margin:0;font-family:var(--display);font-weight:400;font-size:26px;line-height:1.1;text-wrap:balance}
 #handoff{background:var(--bg);backdrop-filter:none;-webkit-backdrop-filter:none}
@@ -326,6 +333,23 @@ button.cell{cursor:crosshair}
 .bubble.say{font-size:14px;font-weight:800;white-space:nowrap;background:#fff;color:#1a1426;padding:6px 10px;border-radius:12px;filter:none;box-shadow:0 6px 16px rgba(0,0,0,.4)}
 .dock .bubble.say{font-size:15px}
 .cell.nope{opacity:.3}
+/* avatars */
+.avbtn{flex:none;width:50px;height:50px;border-radius:14px;border:0;background:var(--bg2);box-shadow:inset 0 0 0 1.5px var(--line);font-size:28px;line-height:1}
+.avgrid{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;padding:8px;border-radius:14px;background:var(--bg2);box-shadow:inset 0 0 0 1.5px var(--line)}
+.avgrid button{border:0;background:transparent;font-size:26px;aspect-ratio:1;border-radius:10px}
+.avgrid button[aria-pressed="true"]{background:var(--surface);box-shadow:inset 0 0 0 2px var(--accent)}
+.prow .avbtn{width:42px;height:42px;font-size:22px;border-radius:12px}
+.prow .avbtn:disabled{opacity:1}
+.members .av{font-size:20px;line-height:1;border:0;background:transparent;padding:0;flex:none}
+.members button.av{cursor:pointer;border-radius:8px;box-shadow:inset 0 0 0 1.5px var(--accent);padding:3px}
+.av-i{font-style:normal;margin-right:.3em}
+#hoAvatar{font-size:64px;line-height:1}
+/* look: table design and size */
+.look{display:flex;flex-direction:column;gap:10px}
+.look .seg{grid-template-columns:repeat(4,1fr)}
+.look .seg.three{grid-template-columns:repeat(3,1fr)}
+.look .seg button{font-size:13px;white-space:nowrap;padding-inline:4px}
+.look .swatch{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:5px;vertical-align:-1px;box-shadow:0 0 0 1.5px var(--line)}
 .history{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:4px;max-height:240px;overflow-y:auto;font-size:13px}
 .history li{padding:6px 10px;border-radius:10px;background:var(--bg)}
 .bubble{position:absolute;z-index:5;left:50%;top:-6px;font-size:34px;line-height:1;pointer-events:none;transform:translateX(-50%);animation:floatup 2.4s ease-out forwards;filter:drop-shadow(0 4px 6px rgba(0,0,0,.5))}
@@ -364,8 +388,8 @@ button.cell{cursor:crosshair}
   .dock{flex-direction:column;align-self:start;margin-top:8px;border-radius:22px;padding:18px;gap:16px;box-shadow:inset 0 0 0 1.5px var(--line)}
   .dock.myturn{box-shadow:inset 0 0 0 2px var(--accent)}
   .dock.placing{margin-top:48px}
-  .mine .board{--bs:324px}
-  .mine{width:324px}
+  .mine .board{--bs:calc(324px * min(1, var(--cs)))}
+  .mine{width:calc(324px * min(1, var(--cs)))}
   .weapons{max-width:640px}
   .mine .veil{--bs:324px}
   .mine .fleet i{height:6px;width:calc(var(--l) * 6px)}
@@ -401,7 +425,11 @@ button.cell{cursor:crosshair}
     <div class="panel" id="onlinePanel">
       <p class="hint" id="serverHint" hidden></p>
       <label class="label" for="myName">Dein Name</label>
-      <input class="field" id="myName" maxlength="18" autocomplete="nickname" enterkeyhint="done" placeholder="z. B. Anna">
+      <div class="row">
+        <button class="avbtn" id="myAvatar" type="button" aria-label="Avatar wählen"></button>
+        <input class="field" id="myName" maxlength="18" autocomplete="nickname" enterkeyhint="done" placeholder="z. B. Anna">
+      </div>
+      <div class="avgrid" id="avatarGrid" hidden></div>
       <div class="label">Raum beitreten</div>
       <div class="row">
         <input class="field code" id="joinCode" maxlength="4" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go" placeholder="CODE" aria-label="Raum-Code">
@@ -439,6 +467,10 @@ button.cell{cursor:crosshair}
       </details>
       <button class="btn btn-primary btn-block" id="startLocal" type="button">Neues Spiel starten</button>
     </div>
+    <details class="houserules">
+      <summary><span class="label">Aussehen</span><span class="rules-sum" id="lookSum"></span></summary>
+      <div class="look" id="lookHome"></div>
+    </details>
     <div class="panel" id="statsPanel" hidden>
       <div class="label">Bilanz auf diesem Gerät</div>
       <ol class="scores" id="statsList"></ol>
@@ -540,6 +572,7 @@ button.cell{cursor:crosshair}
 </div>
 
 <div class="overlay" id="handoff" hidden>
+  <div id="hoAvatar" aria-hidden="true"></div>
   <div class="pass">Handy weitergeben an</div>
   <div class="name" id="hoName"></div>
   <div class="meta" id="hoMeta"></div>
@@ -586,6 +619,7 @@ button.cell{cursor:crosshair}
     <div class="rules"><details><summary>Spielverlauf</summary><ol class="history" id="menuLog"></ol></details></div>
     <div class="hint" id="menuRules"></div>
     <label class="toggle" for="aimHelp"><input type="checkbox" id="aimHelp"><span>Zielhilfe<small>Dunkelt Felder ab, auf denen kein übriges Schiff mehr liegen kann.</small></span></label>
+    <div class="rules"><details><summary>Aussehen</summary><div class="look" id="lookMenu"></div></details></div>
     <label class="toggle" for="soundOn"><input type="checkbox" id="soundOn" checked><span>Töne und Vibration</span></label>
     <div id="menuActions"></div>
     <button class="btn btn-primary btn-block" id="menuClose" type="button">Weiterspielen</button>

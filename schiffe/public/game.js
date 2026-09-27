@@ -30,6 +30,10 @@
   const COLS = "ABCDEFGHIJKLMNOP";
   const MAX_PLAYERS = 4;
   const BOT_NAMES = ["Admiral Byte", "Käpt'n Blech", "Maat Robo", "Lotse Chip"];
+  const AVATARS = ["🦊", "🐼", "🐸", "🐯", "🦁", "🐨", "🐙", "🦄", "🐵", "🐧", "🦉", "🐢", "🐳", "🦖", "👻", "🤠"];
+  const BOT_AVATAR = "🤖";
+  // computer players always wear the robot; people keep a valid animal (or get one by seat)
+  const avatarOf = (p, i) => (p.bot ? BOT_AVATAR : AVATARS.includes(p.avatar) ? p.avatar : AVATARS[i % AVATARS.length]);
   const LEVELS = { 1: "Leicht", 2: "Normal", 3: "Profi" };
   const SWIFT_MS = 8000, CLOCK_MS = 15000, GRACE = 600;
 
@@ -169,10 +173,10 @@
   const side = (S, i) => (S.teams ? S.players[i].team : i);
   const clockMs = (S) => (S.size === 5 ? SWIFT_MS : S.rules.clock ? CLOCK_MS : 0);
 
-  // players: [{ name, bot }]; goal: wins needed (1-3); size: a key of FLEETS; level: computer strength 1-3
+  // players: [{ name, bot, avatar }]; goal: wins needed (1-3); size: a key of FLEETS; level: computer strength 1-3
   function newGame(players, goal, size, rules, level) {
     const S = {
-      players: players.slice(0, MAX_PLAYERS).map((p) => ({ name: p.name, bot: !!p.bot, wins: 0 })),
+      players: players.slice(0, MAX_PLAYERS).map((p, i) => ({ name: p.name, bot: !!p.bot, avatar: avatarOf(p, i), wins: 0 })),
       size: normSize(size), goal: normGoal(goal), rules: normRules(rules), level: normLevel(level),
       round: 0, turn: 0, starter: rand(players.length), log: [], last: null
     };
@@ -534,7 +538,7 @@
       players: S.players.map((p, i) => {
         const see = i === me || reveal || (S.teams && P && p.team === P.team);
         return {
-          name: p.name, bot: p.bot, wins: p.wins, team: p.team, out: p.out, ready: p.ready,
+          name: p.name, bot: p.bot, avatar: avatarOf(p, i), wins: p.wins, team: p.team, out: p.out, ready: p.ready,
           sonar: p.sonar, bomb: p.bomb, torpedo: p.torpedo, marks: p.marks,
           shots: p.shots, hits: p.hits, sinks: p.sinks, steals: p.steals, best: p.best, worstMiss: p.worstMiss,
           left: p.fleet ? p.fleet.filter((s) => !s.sunk).map((s) => s.key) : FLEETS[S.size].slice(),
@@ -547,7 +551,7 @@
   }
 
   return {
-    SHAPES, FLEETS, COLS, MAX_PLAYERS, BOT_NAMES, LEVELS, RULES, normRules, normSize, normGoal, normLevel, cellName, shipName,
+    SHAPES, FLEETS, COLS, MAX_PLAYERS, BOT_NAMES, AVATARS, BOT_AVATAR, LEVELS, RULES, normRules, normSize, normGoal, normLevel, cellName, shipName,
     around, offsets, place, matchKey, possible, orientOf, canon, placeError, fleetError, randomFleet,
     newGame, startRound, act, tick, nextDeadline, resetClock, botMove, view
   };

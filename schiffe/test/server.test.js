@@ -9,7 +9,8 @@ const WebSocket = require("ws");
 process.env.PORT = "0";
 process.env.BOT_MS = "20";
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "schiffe-"));
-const { server, wss } = require("../server.js");
+const { server, wss, rooms } = require("../server.js");
+const Game = require("../public/game.js");
 test.after(() => { for (const ws of wss.clients) ws.terminate(); server.close(); });
 
 function client(port) {
@@ -43,14 +44,20 @@ test("create, join, place and play over WebSockets, with a computer player", asy
 
   const a = client(port), b = client(port);
   await a.open; await b.open;
-  a.send({ t: "create", name: "Anna", goal: 2, size: 12, rules: { salvo: true, bogus: true } });
+  a.send({ t: "create", name: "Anna", goal: 2, size: 12, rules: { salvo: true, bogus: true }, avatar: "🐙" });
   const joined = await a.next((m) => m.t === "joined");
-  b.send({ t: "join", code: joined.code.toLowerCase(), name: "Ben" });
+  b.send({ t: "join", code: joined.code.toLowerCase(), name: "Ben", avatar: "💣" }); // not an allowed avatar
   await b.next((m) => m.t === "joined");
   const lobby = await a.next((m) => m.t === "room" && m.members.length === 2);
   assert.strictEqual(lobby.view, null);
   assert.strictEqual(lobby.size, 12);
   assert.strictEqual(lobby.goal, 2);
+  // avatars: valid ones are kept, anything else becomes a random animal
+  assert.strictEqual(lobby.members[0].avatar, "🐙");
+  assert.ok(Game.AVATARS.includes(lobby.members[1].avatar));
+  b.send({ t: "avatar", avatar: "💣" }); // ignored
+  b.send({ t: "avatar", avatar: "🦖" });
+  assert.strictEqual((await a.next((m) => m.t === "room" && m.members[1].avatar === "🦖")).members[1].avatar, "🦖");
 
   b.send({ t: "join", code: joined.code, name: "anna" });
   assert.match((await b.next((m) => m.t === "error")).msg, /vergeben/);
@@ -65,7 +72,7 @@ test("create, join, place and play over WebSockets, with a computer player", asy
 
   a.send({ t: "bot" });
   const withBot = await b.next((m) => m.t === "room" && m.members.length === 3);
-  assert.deepStrictEqual(withBot.members[2], { name: "Admiral Byte", bot: true, online: true });
+  assert.deepStrictEqual(withBot.members[2], { name: "Admiral Byte", bot: true, avatar: "🤖", online: true });
 
   b.send({ t: "start" });
   assert.match((await b.next((m) => m.t === "error")).msg, /Nur/);
@@ -73,6 +80,11 @@ test("create, join, place and play over WebSockets, with a computer player", asy
   const sa = await a.next((m) => m.t === "room" && m.view);
   assert.strictEqual(sa.view.phase, "place");
   assert.strictEqual(sa.view.players[2].ready, true); // the computer is ready right away
+  assert.deepStrictEqual(sa.view.players.map((p) => p.avatar), ["🐙", "🦖", "🤖"]);
+  a.send({ t: "avatar", avatar: "🦊" }); // not during a game
+  a.send({ t: "react", e: "👍" });
+  await a.next((m) => m.t === "react");
+  assert.strictEqual(rooms.get(joined.code).members[0].avatar, "🐙");
   assert.strictEqual(sa.view.players[1].ships, null);
 
   // joining a running game: Chris watches without seeing any fleet

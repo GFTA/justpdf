@@ -12,13 +12,36 @@
   }
   try { sessionStorage.removeItem("schiffe.reloaded"); } catch (e) {}
   const $ = (s) => document.querySelector(s);
-  const K = { local: "schiffe.v2", players: "schiffe.players", online: "schiffe.online", me: "schiffe.me", rules: "schiffe.rules", size: "schiffe.size", goal: "schiffe.goal", sound: "schiffe.sound", level: "schiffe.level", help: "schiffe.help", stats: "schiffe.stats" };
+  const K = { local: "schiffe.v2", players: "schiffe.players", online: "schiffe.online", me: "schiffe.me", rules: "schiffe.rules", size: "schiffe.size", goal: "schiffe.goal", sound: "schiffe.sound", level: "schiffe.level", help: "schiffe.help", stats: "schiffe.stats",
+    avatar: "schiffe.avatar", avatars: "schiffe.avatars", look: "schiffe.look" };
   const store = {
     get(k) { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch (e) { return null; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
     del(k) { try { localStorage.removeItem(k); } catch (e) {} }
   };
   const BOT_MS = 1100;
+
+  // ---------- look: table design and board size (applied before anything is drawn) ----------
+  const TABLES = [["night", "Nacht", "#1a1426"], ["felt", "Filz", "#15372a"], ["ocean", "Ozean", "#15243a"], ["light", "Hell", "#eceff5"]];
+  const LOOK_SIZES = [["0.85", "Klein"], ["1", "Normal"], ["1.15", "Groß"]];
+  let look = Object.assign({ table: "night", size: "1" }, store.get(K.look) || {});
+  function applyLook() {
+    const root = document.documentElement, t = TABLES.find((x) => x[0] === look.table) || TABLES[0];
+    if (t[0] === "night") delete root.dataset.table; else root.dataset.table = t[0];
+    root.style.setProperty("--cs", (LOOK_SIZES.find((x) => x[0] === look.size) || LOOK_SIZES[1])[0]);
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute("content", getComputedStyle(root).getPropertyValue("--bg").trim() || t[2]);
+  }
+  applyLook();
+
+  // ---------- avatars ----------
+  const randomAvatar = () => G.AVATARS[Math.floor(Math.random() * G.AVATARS.length)];
+  let myAvatar = G.AVATARS.includes(store.get(K.avatar)) ? store.get(K.avatar) : randomAvatar();
+  store.set(K.avatar, myAvatar);
+  let localAvatars = Array.isArray(store.get(K.avatars)) ? store.get(K.avatars) : [];
+  const avatarFor = (i) => (G.AVATARS.includes(localAvatars[i]) ? localAvatars[i] : G.AVATARS[i % G.AVATARS.length]);
+  const nextAvatar = (a) => G.AVATARS[(G.AVATARS.indexOf(a) + 1) % G.AVATARS.length];
+  const avi = (a) => (a ? `<i class="av-i" aria-hidden="true">${a}</i>` : "");
   const SIZES = [[5, "5×5", "Swiftplay"], [8, "8×8", "schnell"], [10, "10×10", "klassisch"],
     [12, "12×12", "groß"], [14, "14×14", "Sonderschiffe"], [16, "16×16", "riesig"]];
   const LEVELS = [[1, "Leicht"], [2, "Normal"], [3, "Profi"]];
@@ -515,18 +538,26 @@
   const desktop = matchMedia("(min-width:900px) and (min-height:700px)");
   // desktop, two players: the opponent's sea on top, your own fleet underneath
   const duo = () => !!V && desktop.matches && V.players.length === 2 && V.me >= 0 && V.phase !== "place";
+  // The board fills the room the arena has left; the size setting (--cs) scales that,
+  // and a board bigger than the room makes the arena scroll.
   function layoutBoard() {
-    const wrap = $("#boardWrap"), b = $("#board");
+    const wrap = $("#boardWrap"), b = $("#board"), arena = $(".arena");
     if (!wrap.offsetParent) return;
     const two = !$("#duoOwn").hidden;
-    const h = two ? (wrap.clientHeight - 10 - 32) / 2 : wrap.clientHeight;
-    const s = Math.floor(Math.min(wrap.clientWidth, h, desktop.matches ? 640 : 480));
+    const st = getComputedStyle(arena), kids = [...arena.children].filter((el) => el !== wrap && el.offsetParent !== null);
+    const used = kids.reduce((h, el) => h + el.offsetHeight, 0) + kids.length * (parseFloat(st.rowGap) || 8);
+    const room = arena.clientHeight - parseFloat(st.paddingTop) - parseFloat(st.paddingBottom) - used;
+    const h = two ? (room - 10 - 32) / 2 : room;
+    const cs = parseFloat((LOOK_SIZES.find((x) => x[0] === look.size) || LOOK_SIZES[1])[0]);
+    const fit = Math.max(120, Math.min(wrap.clientWidth, h, desktop.matches ? 640 : 480));
+    const maxW = cs > 1 ? arena.clientWidth - 8 : wrap.clientWidth; // big boards may use the side margins
+    const s = Math.floor(Math.min(maxW, fit * cs));
     $(".arena > .bhead").style.maxWidth = two && s > 0 ? s + "px" : "";
     if (s > 0) { b.style.setProperty("--bs", s + "px"); $("#duoOwn").style.setProperty("--bs", s + "px"); $("#board2").style.setProperty("--bs", s + "px"); }
   }
   desktop.addEventListener && desktop.addEventListener("change", () => { if (V) render(); });
   window.addEventListener("resize", () => { if (V) layoutBoard(); });
-  if (window.ResizeObserver) new ResizeObserver(() => layoutBoard()).observe($("#boardWrap"));
+  if (window.ResizeObserver) new ResizeObserver(() => layoutBoard()).observe($(".arena"));
 
   // aim help (a personal setting): dim the cells where no ship that is left could still lie
   let aimHelp = store.get(K.help) === true;
@@ -628,7 +659,7 @@
       else if (away) tag = "offline";
       if (tag && tag[0] !== "<") tag = `<span class="otag">${tag}</span>`;
       opps += `<button type="button" class="${cls}" data-seat="${i}" aria-label="${esc(p.name)}: noch ${p.left.length} Schiffe">` +
-        `<span class="ocount">${p.left.length}</span><span class="oname">${esc(p.name)}</span>` +
+        `<span class="ocount">${p.left.length}</span><span class="oname">${avi(p.avatar)}${esc(p.name)}</span>` +
         `<span class="fleet">${fleetHTML(V.fleet, p.left)}</span>${tag}</button>`;
     }
     const oppsEl = $("#opps");
@@ -650,7 +681,7 @@
     $("#lastMove").hidden = V.phase === "place";
     if (placing) {
       ensureDraft();
-      $("#boardTitle").innerHTML = "<small>Aufstellen</small>Deine Flotte";
+      $("#boardTitle").innerHTML = `<small>Aufstellen</small>${avi(P.avatar)}Deine Flotte`;
       $("#boardFleet").innerHTML = "";
       paintBoard(board, { size: V.size, ships: draft.filter((s) => s.cells).map((s) => s.cells), labels: true, buttons: true, bad: badCells });
       board.classList.remove("locked");
@@ -664,8 +695,8 @@
       board.classList.add("locked");
     } else {
       const f = V.phase === "place" ? me : focus, F = V.players[f];
-      if (f === me) $("#boardTitle").innerHTML = `<small>${V.phase === "place" ? "Bereit" : "Du"}</small>Deine Flotte`;
-      else $("#boardTitle").innerHTML = `<small>${isMate(f) ? "Partner" : F.out ? "Versenkt" : "Ziel"}</small>${esc(F.name)}`;
+      if (f === me) $("#boardTitle").innerHTML = `<small>${V.phase === "place" ? "Bereit" : "Du"}</small>${avi(F.avatar)}Deine Flotte`;
+      else $("#boardTitle").innerHTML = `<small>${isMate(f) ? "Partner" : F.out ? "Versenkt" : "Ziel"}</small>${avi(F.avatar)}${esc(F.name)}`;
       $("#boardFleet").innerHTML = F ? fleetHTML(V.fleet, F.left) : "";
       const shoot = V.phase === "play" && canShoot(f);
       const aim = shoot && aimAt === f ? aimCell : null;
@@ -945,6 +976,7 @@
     if (need < 0) { hidden = false; $("#handoff").hidden = true; return; }
     const p = L.players[need];
     $("#hoName").textContent = p.name;
+    $("#hoAvatar").textContent = p.avatar || "";
     if (L.phase === "place") {
       $("#hoMeta").textContent = "Stell deine Flotte auf. Die anderen schauen bitte weg!";
       $("#hoLog").innerHTML = "";
@@ -962,7 +994,7 @@
     el.innerHTML = ranked.map((p) => {
       const q = p.shots ? Math.round((p.hits / p.shots) * 100) : 0;
       const you = p.i === V.me && mode === "online" ? " (du)" : "";
-      return `<li class="${winners.includes(p.i) ? "win" : ""}"><span>${esc(p.name)}${you}<small>${p.shots ? `${q} % Treffer · ${p.sinks} versenkt` : ""}</small></span>` +
+      return `<li class="${winners.includes(p.i) ? "win" : ""}"><span>${avi(p.avatar)}${esc(p.name)}${you}<small>${p.shots ? `${q} % Treffer · ${p.sinks} versenkt` : ""}</small></span>` +
         `<b>${p.wins} ${p.wins === 1 ? "Sieg" : "Siege"}</b></li>`;
     }).join("");
   }
@@ -996,7 +1028,7 @@
     $("#reAwards").innerHTML = awards().map((x) => `<li>${x}</li>`).join("");
     $("#reFleets").innerHTML = V.players.map((p, i) =>
       `<figure class="${ws.includes(i) ? "win" : ""}"><div class="board bare" style="--n:${V.size}">${boardHTML({ size: V.size, marks: p.marks, ships: p.ships })}</div>` +
-      `<figcaption>${esc(p.name)}${i === V.me && mode === "online" ? " (du)" : ""}</figcaption></figure>`).join("");
+      `<figcaption>${avi(p.avatar)}${esc(p.name)}${i === V.me && mode === "online" ? " (du)" : ""}</figcaption></figure>`).join("");
     const box = $("#reFleets"), w = box.clientWidth || 300, cols = V.players.length > 2 ? 2 : V.players.length;
     box.style.setProperty("--fbs", Math.floor(Math.min(240, (w - (cols - 1) * 12) / cols)) + "px");
     $("#reBtn").textContent = last.over ? "Revanche" : "Nächste Runde";
@@ -1034,6 +1066,8 @@
 
   function renderHome(force) {
     renderLocalRules();
+    renderLook();
+    $("#myAvatar").textContent = myAvatar;
     renderStats();
     for (const b of document.querySelectorAll("#modeTabs button")) b.setAttribute("aria-pressed", String(b.dataset.tab === tab));
     // never hide the online form on a web address: a failed check (ad blocker, slow
@@ -1056,7 +1090,7 @@
     const list = $("#plist");
     if (force || !list.contains(document.activeElement)) {
       list.innerHTML = players.map((p, i) =>
-        `<div class="prow"><span class="seat">${i + 1}</span>` +
+        `<div class="prow"><button class="avbtn" type="button" data-av="${i}" aria-label="Avatar für Platz ${i + 1} wechseln"${p.bot ? " disabled" : ""}>${p.bot ? G.BOT_AVATAR : avatarFor(i)}</button>` +
         `<input class="field" id="pname-${i}" data-i="${i}" maxlength="18" autocomplete="off" enterkeyhint="next" placeholder="${p.bot ? G.BOT_NAMES[i] : `Spieler ${i + 1}`}" value="${esc(p.name)}">` +
         `<button class="kind" type="button" data-kind="${i}" aria-pressed="${p.bot}">${p.bot ? ICON.bot + "Computer" : ICON.person + "Mensch"}</button>` +
         (players.length > 2 ? `<button class="rm" type="button" data-rm="${i}" aria-label="Spieler ${i + 1} entfernen">×</button>` : "") +
@@ -1087,7 +1121,9 @@
     $("#membersLabel").textContent = `Spieler (${R.members.length}/${G.MAX_PLAYERS})` + (seen.length ? ` · ${seen.length} ${seen.length === 1 ? "schaut" : "schauen"} zu` : "");
     $("#sitBtn").hidden = !watching || R.members.length >= G.MAX_PLAYERS;
     $("#members").innerHTML = R.members.map((m, i) =>
-      `<li class="${i === R.you ? "me" : ""}">${m.bot ? `<span class="botico">${ICON.bot}</span>` : `<span class="on${m.online ? "" : " off"}"></span>`}<span class="nm">${esc(m.name)}</span>` +
+      `<li class="${i === R.you ? "me" : ""}">${m.bot ? `<span class="botico">${ICON.bot}</span>` : `<span class="on${m.online ? "" : " off"}"></span>`}` +
+      (i === R.you ? `<button class="av" type="button" data-myav aria-label="Avatar wechseln">${m.avatar}</button>` : `<span class="av" aria-hidden="true">${m.avatar || ""}</span>`) +
+      `<span class="nm">${esc(m.name)}</span>` +
       `${teams ? `<span class="tag team t${i % 2}">${i % 2 ? "Team Rot" : "Team Blau"}</span>` : ""}` +
       `${i === R.host ? '<span class="tag">Host</span>' : ""}${i === R.you ? '<span class="tag">du</span>' : ""}${m.bot ? '<span class="tag">Computer</span>' : ""}` +
       `${m.bot && host ? `<button class="rm" type="button" data-unbot="${i}" aria-label="${esc(m.name)} entfernen">×</button>` : ""}</li>`).join("");
@@ -1115,6 +1151,41 @@
   $("#members").addEventListener("click", (e) => { const b = e.target.closest("[data-unbot]"); if (b) wsSend({ t: "unbot", i: +b.dataset.unbot }); });
   $("#addBot").addEventListener("click", () => wsSend({ t: "bot" }));
   $("#sitBtn").addEventListener("click", () => wsSend({ t: "sit" }));
+  $("#members").addEventListener("click", (e) => {
+    if (!e.target.closest("[data-myav]")) return;
+    myAvatar = nextAvatar(myAvatar); store.set(K.avatar, myAvatar);
+    wsSend({ t: "avatar", avatar: myAvatar });
+  });
+
+  // avatar picker in the online form
+  $("#myAvatar").addEventListener("click", () => {
+    const g = $("#avatarGrid");
+    g.innerHTML = G.AVATARS.map((a) => `<button type="button" data-pick="${a}" aria-pressed="${a === myAvatar}">${a}</button>`).join("");
+    g.hidden = !g.hidden;
+  });
+  $("#avatarGrid").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-pick]"); if (!b) return;
+    myAvatar = b.dataset.pick; store.set(K.avatar, myAvatar);
+    $("#avatarGrid").hidden = true; $("#myAvatar").textContent = myAvatar;
+  });
+
+  // look settings on the start screen and in the menu
+  function renderLook() {
+    const html = `<div class="label">Tisch</div><div class="seg">${TABLES.map(([k, n, c]) =>
+      `<button type="button" data-table="${k}" aria-pressed="${look.table === k}"><span class="swatch" style="background:${c}"></span>${n}</button>`).join("")}</div>` +
+      `<div class="label">Größe</div><div class="seg three">${LOOK_SIZES.map(([k, n]) =>
+      `<button type="button" data-size="${k}" aria-pressed="${look.size === k}">${n}</button>`).join("")}</div>`;
+    for (const id of ["#lookHome", "#lookMenu"]) if ($(id).innerHTML !== html) $(id).innerHTML = html;
+    $("#lookSum").textContent = `${(TABLES.find((x) => x[0] === look.table) || TABLES[0])[1]} · ${(LOOK_SIZES.find((x) => x[0] === look.size) || LOOK_SIZES[1])[1]}`;
+  }
+  for (const id of ["#lookHome", "#lookMenu"]) $(id).addEventListener("click", (e) => {
+    const t = e.target.closest("[data-table]"), z = e.target.closest("[data-size]");
+    if (!t && !z) return;
+    if (t) look.table = t.dataset.table;
+    if (z) look.size = z.dataset.size;
+    store.set(K.look, look); applyLook(); renderLook();
+    if (V && !$("#game").hidden) layoutBoard();
+  });
   $("#statsReset").addEventListener("click", (e) => { // second tap within 3 s deletes
     const b = e.currentTarget;
     if (b.dataset.armed) { store.del(K.stats); delete b.dataset.armed; b.textContent = "Bilanz löschen"; b.classList.remove("btn-danger"); renderStats(); return; }
@@ -1246,20 +1317,24 @@
     const code = $("#joinCode").value.trim();
     if (code.length !== 4) { toast("Der Raum-Code hat 4 Buchstaben."); $("#joinCode").focus(); return; }
     store.del(K.online);
-    wsSend({ t: "join", code, name: n });
+    wsSend({ t: "join", code, name: n, avatar: myAvatar });
   }
   $("#joinBtn").addEventListener("click", join);
   $("#joinCode").addEventListener("keydown", (e) => { if (e.key === "Enter") join(); });
   $("#createBtn").addEventListener("click", () => {
     const n = myName(); if (!n) return;
     store.del(K.online);
-    wsSend({ t: "create", name: n, goal: goalLocal, size: sizeLocal, rules: localRules, level: levelLocal });
+    wsSend({ t: "create", name: n, goal: goalLocal, size: sizeLocal, rules: localRules, level: levelLocal, avatar: myAvatar });
   });
 
   $("#plist").addEventListener("input", (e) => { if (e.target.dataset.i != null) { players[+e.target.dataset.i].name = e.target.value; store.set(K.players, players); } });
   $("#plist").addEventListener("click", (e) => {
-    const rm = e.target.closest("[data-rm]"), kind = e.target.closest("[data-kind]");
-    if (rm) players.splice(+rm.dataset.rm, 1);
+    const rm = e.target.closest("[data-rm]"), kind = e.target.closest("[data-kind]"), av = e.target.closest("[data-av]");
+    if (av) {
+      const i = +av.dataset.av; if (players[i].bot) return;
+      localAvatars[i] = nextAvatar(avatarFor(i)); store.set(K.avatars, localAvatars); renderHome(true); return;
+    }
+    if (rm) { players.splice(+rm.dataset.rm, 1); localAvatars.splice(+rm.dataset.rm, 1); store.set(K.avatars, localAvatars); }
     else if (kind) players[+kind.dataset.kind].bot = !players[+kind.dataset.kind].bot;
     else return;
     store.set(K.players, players); renderHome(true);
@@ -1281,7 +1356,7 @@
   }
   $("#startLocal").addEventListener("click", () => {
     if (!players.some((p) => !p.bot)) { toast("Mindestens ein Mensch muss mitspielen."); return; }
-    const list = players.map((p, i) => ({ name: p.name.trim() || (p.bot ? G.BOT_NAMES[i] : `Spieler ${i + 1}`), bot: p.bot }));
+    const list = players.map((p, i) => ({ name: p.name.trim() || (p.bot ? G.BOT_NAMES[i] : `Spieler ${i + 1}`), bot: p.bot, avatar: avatarFor(i) }));
     startLocal(G.newGame(list, goalLocal, sizeLocal, localRules, levelLocal));
   });
   $("#resumeBtn").addEventListener("click", () => {
@@ -1321,6 +1396,7 @@
     return b;
   }
   $("#menuBtn").addEventListener("click", () => {
+    renderLook();
     scoreList($("#menuScores"), []);
     $("#menuLog").innerHTML = V ? V.log.slice().reverse().map((l) => `<li>${esc(l)}</li>`).join("") : "";
     $("#aimHelp").checked = aimHelp;

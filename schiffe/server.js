@@ -21,6 +21,7 @@ const ROOM_TTL = 12 * 3600 * 1000;
 const BOT_MS = +process.env.BOT_MS || 1100; // how long a computer player "thinks"
 const REACTIONS = ["👍", "😂", "😱", "😡", "🎉", "🙈", "Na warte!", "Glück gehabt!", "Knapp daneben!", "Gut gespielt!"];
 const MAX_WATCHERS = 20;
+const avatarOf = (a) => (Game.AVATARS.includes(a) ? a : Game.AVATARS[crypto.randomInt(Game.AVATARS.length)]);
 const QR_LIB = require.resolve("qrcode-generator/qrcode.js");
 
 const TYPES = {
@@ -104,7 +105,7 @@ function watch(ws, room, name) {
 
 function broadcast(room, events) {
   const on = online(room.code);
-  const members = room.members.map((m, i) => ({ name: m.name, bot: !!m.bot, online: m.bot || on.has(i) }));
+  const members = room.members.map((m, i) => ({ name: m.name, bot: !!m.bot, avatar: m.bot ? Game.BOT_AVATAR : avatarOf(m.avatar), online: m.bot || on.has(i) }));
   const seen = watchers(room.code);
   for (const ws of sockets.get(room.code) || []) {
     if (ws.pid == null) continue;
@@ -162,7 +163,7 @@ function handle(ws, msg) {
       if (rooms.size >= MAX_ROOMS) return err("Der Server ist voll. Versuch es später nochmal.");
       const r = {
         code: newCode(), host: 0, goal: Game.normGoal(msg.goal), size: Game.normSize(msg.size), rules: Game.normRules(msg.rules), level: Game.normLevel(msg.level),
-        members: [{ name, secret: crypto.randomUUID() }], state: null, touched: Date.now()
+        members: [{ name, secret: crypto.randomUUID(), avatar: avatarOf(msg.avatar) }], state: null, touched: Date.now()
       };
       rooms.set(r.code, r);
       attach(ws, r, 0);
@@ -182,9 +183,10 @@ function handle(ws, msg) {
       }
       if (r.state || r.members.length >= MAX_PLAYERS) { // running game or full room: watch instead
         if (watchers(r.code).length >= MAX_WATCHERS) return err("Der Raum ist voll, auch zum Zuschauen.");
+        ws.watchAvatar = avatarOf(msg.avatar);
         return watch(ws, r, name);
       }
-      r.members.push({ name, secret: crypto.randomUUID() });
+      r.members.push({ name, secret: crypto.randomUUID(), avatar: avatarOf(msg.avatar) });
       attach(ws, r, r.members.length - 1);
       broadcast(r); saveRooms();
       return;
@@ -202,7 +204,7 @@ function handle(ws, msg) {
       if (room.members.length >= MAX_PLAYERS) return err(`Der Raum ist voll (${MAX_PLAYERS} Spieler).`);
       const name = ws.watchName;
       if (room.members.some((m) => m.name.toLowerCase() === name.toLowerCase())) return err(`Der Name „${name}“ ist schon vergeben.`);
-      room.members.push({ name, secret: crypto.randomUUID() });
+      room.members.push({ name, secret: crypto.randomUUID(), avatar: avatarOf(ws.watchAvatar) });
       attach(ws, room, room.members.length - 1);
       broadcast(room); saveRooms();
       return;
@@ -225,7 +227,7 @@ function handle(ws, msg) {
       if (room.members.length >= MAX_PLAYERS) return err(`Mehr als ${MAX_PLAYERS} Spieler gehen nicht.`);
       const taken = new Set(room.members.map((m) => m.name));
       const name = Game.BOT_NAMES.find((n) => !taken.has(n)) || `Computer ${room.members.length + 1}`;
-      room.members.push({ name, bot: true, secret: null });
+      room.members.push({ name, bot: true, secret: null, avatar: Game.BOT_AVATAR });
       broadcast(room); saveRooms();
       return;
     }
@@ -234,6 +236,12 @@ function handle(ws, msg) {
       const i = +msg.i;
       if (!room.members[i] || !room.members[i].bot) return;
       removeMember(room, i);
+      broadcast(room); saveRooms();
+      return;
+    }
+    case "avatar": { // change your own avatar, only in the waiting room
+      if (!room || room.state || ws.pid == null || ws.pid < 0 || !Game.AVATARS.includes(msg.avatar)) return;
+      room.members[ws.pid].avatar = msg.avatar;
       broadcast(room); saveRooms();
       return;
     }
@@ -251,7 +259,7 @@ function handle(ws, msg) {
       if (!isHost) return err("Nur wer den Raum erstellt hat, kann starten.");
       if (room.state) return;
       if (room.members.length < 2) return err("Es braucht mindestens 2 Spieler. Hol dir sonst einen Computer-Gegner dazu.");
-      room.state = Game.newGame(room.members.map((m) => ({ name: m.name, bot: m.bot })), room.goal, room.size, room.rules, room.level);
+      room.state = Game.newGame(room.members.map((m) => ({ name: m.name, bot: m.bot, avatar: m.avatar })), room.goal, room.size, room.rules, room.level);
       broadcast(room); saveRooms(); scheduleBot(room);
       return;
     }

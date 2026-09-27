@@ -81,6 +81,11 @@ Schiffe mehr liegen kann. Im Menü steht außerdem der ganze **Spielverlauf** de
 Auf dem Startbildschirm zeigt die **Bilanz**, wer auf diesem Gerät wie oft gewonnen
 hat, mit Trefferquote.
 
+**Avatare**: Jeder wählt ein Tier (online über den Knopf neben dem Namen, im Warteraum
+wechselt ein Tippen auf den eigenen Avatar, beim Herumreichen der Knopf vor jeder
+Zeile). Computer-Gegner tragen 🤖. **Aussehen** (Startbildschirm und Menü): Tisch
+Nacht, Filz, Ozean oder Hell und die Größe des Spielfelds (Klein, Normal, Groß).
+
 Online gibt es **Emoji-Reaktionen** und Schnellnachrichten („Na warte!“, „Gut gespielt!“ …), dazu Töne, Vibration und Konfetti für den Sieger
 (im Menü abschaltbar). Der Host kann einen abwesenden Spieler überspringen, jeder kann
 aufgeben.
