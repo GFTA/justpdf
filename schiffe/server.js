@@ -19,7 +19,8 @@ const MAX_PLAYERS = Game.MAX_PLAYERS;
 const MAX_ROOMS = 200;
 const ROOM_TTL = 12 * 3600 * 1000;
 const BOT_MS = +process.env.BOT_MS || 1100; // how long a computer player "thinks"
-const REACTIONS = ["👍", "😂", "😱", "😡", "🎉", "🙈"];
+const REACTIONS = ["👍", "😂", "😱", "😡", "🎉", "🙈", "Na warte!", "Glück gehabt!", "Knapp daneben!", "Gut gespielt!"];
+const MAX_WATCHERS = 20;
 const QR_LIB = require.resolve("qrcode-generator/qrcode.js");
 
 const TYPES = {
@@ -87,18 +88,29 @@ const cleanName = (n) => String(n || "").replace(/\s+/g, " ").trim().slice(0, 18
 
 function online(code) {
   const on = new Set();
-  for (const ws of sockets.get(code) || []) if (ws.pid != null) on.add(ws.pid);
+  for (const ws of sockets.get(code) || []) if (ws.pid != null && ws.pid >= 0) on.add(ws.pid);
   return on;
+}
+// spectators: sockets with pid -1 and a name, they see the table without any fleet
+const watchers = (code) => [...(sockets.get(code) || [])].filter((ws) => ws.pid === -1).map((ws) => ws.watchName);
+function watch(ws, room, name) {
+  detach(ws);
+  ws.code = room.code; ws.pid = -1; ws.watchName = name;
+  if (!sockets.has(room.code)) sockets.set(room.code, new Set());
+  sockets.get(room.code).add(ws);
+  send(ws, { t: "watching", code: room.code, name });
+  broadcast(room);
 }
 
 function broadcast(room, events) {
   const on = online(room.code);
   const members = room.members.map((m, i) => ({ name: m.name, bot: !!m.bot, online: m.bot || on.has(i) }));
+  const seen = watchers(room.code);
   for (const ws of sockets.get(room.code) || []) {
     if (ws.pid == null) continue;
     send(ws, {
       t: "room", code: room.code, you: ws.pid, host: room.host, goal: room.goal, size: room.size, rules: room.rules, members,
-      level: room.level || 2, view: room.state ? Game.view(room.state, ws.pid) : null, events: events || []
+      level: room.level || 2, watchers: seen, view: room.state ? Game.view(room.state, ws.pid) : null, events: events || []
     });
   }
 }
@@ -168,8 +180,10 @@ function handle(ws, msg) {
         if (r.members[same].bot || online(r.code).has(same)) return err(`Der Name „${name}“ ist schon vergeben.`);
         attach(ws, r, same); broadcast(r); return;
       }
-      if (r.state) return err("Das Spiel läuft schon. Neue Spieler können erst mitmachen, wenn der Host zurück in den Warteraum geht.");
-      if (r.members.length >= MAX_PLAYERS) return err(`Der Raum ist voll (${MAX_PLAYERS} Spieler).`);
+      if (r.state || r.members.length >= MAX_PLAYERS) { // running game or full room: watch instead
+        if (watchers(r.code).length >= MAX_WATCHERS) return err("Der Raum ist voll, auch zum Zuschauen.");
+        return watch(ws, r, name);
+      }
       r.members.push({ name, secret: crypto.randomUUID() });
       attach(ws, r, r.members.length - 1);
       broadcast(r); saveRooms();
@@ -182,9 +196,21 @@ function handle(ws, msg) {
       attach(ws, r, pid); broadcast(r);
       return;
     }
+    case "sit": { // a spectator takes a free seat in the waiting room
+      if (!room || ws.pid !== -1) return;
+      if (room.state) return err("Warte, bis der Host zurück in den Warteraum geht.");
+      if (room.members.length >= MAX_PLAYERS) return err(`Der Raum ist voll (${MAX_PLAYERS} Spieler).`);
+      const name = ws.watchName;
+      if (room.members.some((m) => m.name.toLowerCase() === name.toLowerCase())) return err(`Der Name „${name}“ ist schon vergeben.`);
+      room.members.push({ name, secret: crypto.randomUUID() });
+      attach(ws, room, room.members.length - 1);
+      broadcast(room); saveRooms();
+      return;
+    }
     case "leave": {
       if (!room) return;
       const pid = ws.pid;
+      if (pid === -1) { send(ws, { t: "left" }); detach(ws); return; }
       if (!room.state) removeMember(room, pid);
       else if (room.state.phase === "play" && !room.state.players[pid].out) apply(room, pid, { t: "giveup" });
       send(ws, { t: "left" });
@@ -244,7 +270,7 @@ function handle(ws, msg) {
       const now = Date.now();
       if (now - (ws.lastReact || 0) < 1000) return;
       ws.lastReact = now;
-      for (const s of sockets.get(room.code) || []) if (s.pid != null) send(s, { t: "react", pi: ws.pid, e: msg.e });
+      for (const s of sockets.get(room.code) || []) if (s.pid != null) send(s, { t: "react", pi: ws.pid, e: msg.e, name: ws.pid === -1 ? ws.watchName : undefined });
       return;
     }
     case "end": { // host closes the game and returns everyone to the waiting room

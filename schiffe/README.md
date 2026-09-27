@@ -67,7 +67,21 @@ und der eigenen Flotte groß daneben, Hover-Effekte, beim Aufstellen folgt das S
 der Maus (Rechtsklick dreht). Tasten: Pfeile zielen, Enter feuert, 1–3 wählt den
 Gegner, S Sonar, R dreht beim Aufstellen, Esc schließt Fenster.
 
-Online gibt es **Emoji-Reaktionen**, dazu Töne, Vibration und Konfetti für den Sieger
+Mit 2 Spielern liegen am Computer beide Meere groß übereinander wie beim Brettspiel:
+oben das Gegnerfeld zum Schießen, unten die eigene Flotte.
+
+**Ansicht**: Das große Feld bleibt immer bei dem Meer, das du angetippt hast. Schüsse
+auf andere Meere lassen deren Kärtchen oben kurz aufleuchten (rot bei Treffer), Treffer
+auf die eigene Flotte blitzen rot und vibrieren.
+
+**Zuschauen**: Wer einem laufenden Spiel oder einem vollen Raum beitritt, schaut zu
+(ohne Flotten zu sehen) und kann im Warteraum mit „Mitspielen“ einen freien Platz
+nehmen. **Zielhilfe** (im Menü): dunkelt Felder ab, auf denen keins der übrigen
+Schiffe mehr liegen kann. Im Menü steht außerdem der ganze **Spielverlauf** der Runde.
+Auf dem Startbildschirm zeigt die **Bilanz**, wer auf diesem Gerät wie oft gewonnen
+hat, mit Trefferquote.
+
+Online gibt es **Emoji-Reaktionen** und Schnellnachrichten („Na warte!“, „Gut gespielt!“ …), dazu Töne, Vibration und Konfetti für den Sieger
 (im Menü abschaltbar). Der Host kann einen abwesenden Spieler überspringen, jeder kann
 aufgeben.
 

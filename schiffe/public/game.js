@@ -509,6 +509,21 @@
     return pick(free.filter((c) => heat[c] === best));
   }
 
+  // Aim help: for each cell, could one of the remaining ships still lie there?
+  // Uses only what everyone sees (marks and the shapes of the ships not yet sunk).
+  function possible(size, marks, keys) {
+    const ok = new Array(size * size).fill(false);
+    for (const key of new Set(keys)) for (const o of [0, 1]) {
+      const off = offsets(key, o);
+      const h = Math.max(...off.map((x) => x[0])) + 1, w = Math.max(...off.map((x) => x[1])) + 1;
+      for (let r = 0; r + h <= size; r++) for (let c = 0; c + w <= size; c++) {
+        const cells = off.map(([a, b]) => (r + a) * size + c + b);
+        if (cells.every((x) => marks[x] === UNKNOWN || marks[x] === HIT)) for (const x of cells) ok[x] = true;
+      }
+    }
+    return ok;
+  }
+
   // What player `pi` may see. pi = -1 shows no fleet (spectator / hand-off screen).
   function view(S, pi) {
     const P = S.players[pi], me = P ? pi : -1, reveal = S.phase === "roundEnd";
@@ -527,13 +542,13 @@
         };
       }),
       sonars: S.sonars.filter((s) => s.by === me),
-      lastShot: S.lastShot, log: S.log.slice(-6), last: S.last
+      lastShot: S.lastShot, log: S.log.slice(), last: S.last
     };
   }
 
   return {
     SHAPES, FLEETS, COLS, MAX_PLAYERS, BOT_NAMES, LEVELS, RULES, normRules, normSize, normGoal, normLevel, cellName, shipName,
-    around, offsets, place, matchKey, orientOf, canon, placeError, fleetError, randomFleet,
+    around, offsets, place, matchKey, possible, orientOf, canon, placeError, fleetError, randomFleet,
     newGame, startRound, act, tick, nextDeadline, resetClock, botMove, view
   };
 });

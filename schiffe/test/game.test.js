@@ -67,6 +67,15 @@ test("wide and diagonal ships", () => {
   assert.match(S.log.join("\n"), /Schnellboot versenkt/);
 });
 
+test("aim help knows where no ship can lie any more", () => {
+  const m = ".".repeat(100).split("");
+  for (let i = 0; i < 10; i++) { m[i * 10 + 1] = "o"; m[10 + i] = "o"; }
+  const ok = G.possible(10, m.join(""), ["L3", "L2"]);
+  assert.strictEqual(ok[0], false); // boxed in by misses
+  assert.strictEqual(ok[55], true);
+  assert.strictEqual(G.possible(10, m.join(""), ["D3"])[0], false);
+});
+
 test("placing, then the first player shoots", () => {
   const S = G.newGame(two(), 1, 10);
   assert.strictEqual(S.phase, "place");

@@ -12,7 +12,7 @@
   }
   try { sessionStorage.removeItem("schiffe.reloaded"); } catch (e) {}
   const $ = (s) => document.querySelector(s);
-  const K = { local: "schiffe.v2", players: "schiffe.players", online: "schiffe.online", me: "schiffe.me", rules: "schiffe.rules", size: "schiffe.size", goal: "schiffe.goal", sound: "schiffe.sound", level: "schiffe.level" };
+  const K = { local: "schiffe.v2", players: "schiffe.players", online: "schiffe.online", me: "schiffe.me", rules: "schiffe.rules", size: "schiffe.size", goal: "schiffe.goal", sound: "schiffe.sound", level: "schiffe.level", help: "schiffe.help", stats: "schiffe.stats" };
   const store = {
     get(k) { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch (e) { return null; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
@@ -36,10 +36,10 @@
   let V = null;           // view currently on screen
   let focus = null;       // board shown big in the arena (player index)
   let pref = null;        // the opponent I last picked
-  let followed = null;    // last shot the arena jumped to
   let aimCell = null, aimAt = null, weapon = "shot", inflight = false;
   let draft = null, draftKey = null, pick = null, orient = 0, lastPlaced = null, badCells = null;
   let anim = null;        // { target, cell, cls } for the next board render
+  let ping = null;        // { target, res }: light up the chip of a board that was just shot at
   let peek = false;       // round over, looking at the revealed fleets
   let server = null;      // server info once found ({} when only the WebSocket answered)
   let serverState = "checking"; // "checking" | "ok" | "none"
@@ -137,6 +137,7 @@
         sfx("fire");
         const cls = ev.res === "miss" ? "splash" : "boom";
         anim = { target: ev.target, cell: ev.cell, cls };
+        ping = { target: ev.target, res: ev.res };
         if (ev.res === "miss") sfx("splash");
         else if (ev.res === "hit") sfx("boom");
         else {
@@ -497,6 +498,7 @@
         if (o.ghost && o.ghost.includes(i)) cls.push("ghost");
         if (o.bad && o.bad.includes(i)) cls.push("bad");
         if (o.last === i) cls.push("last");
+        if (o.nope && o.nope.has(i)) cls.push("nope");
         if (o.aim === i) cls.push("aim");
         if (o.anim && o.anim.cell === i) cls.push(o.anim.cls);
         const label = o.buttons ? ` type="button" aria-label="${G.COLS[c]}${r + 1}"` : "";
@@ -511,14 +513,28 @@
   }
 
   const desktop = matchMedia("(min-width:900px) and (min-height:700px)");
+  // desktop, two players: the opponent's sea on top, your own fleet underneath
+  const duo = () => !!V && desktop.matches && V.players.length === 2 && V.me >= 0 && V.phase !== "place";
   function layoutBoard() {
     const wrap = $("#boardWrap"), b = $("#board");
     if (!wrap.offsetParent) return;
-    const s = Math.floor(Math.min(wrap.clientWidth, wrap.clientHeight, desktop.matches ? 640 : 480));
-    if (s > 0) b.style.setProperty("--bs", s + "px");
+    const two = !$("#duoOwn").hidden;
+    const h = two ? (wrap.clientHeight - 10 - 32) / 2 : wrap.clientHeight;
+    const s = Math.floor(Math.min(wrap.clientWidth, h, desktop.matches ? 640 : 480));
+    $(".arena > .bhead").style.maxWidth = two && s > 0 ? s + "px" : "";
+    if (s > 0) { b.style.setProperty("--bs", s + "px"); $("#duoOwn").style.setProperty("--bs", s + "px"); $("#board2").style.setProperty("--bs", s + "px"); }
   }
+  desktop.addEventListener && desktop.addEventListener("change", () => { if (V) render(); });
   window.addEventListener("resize", () => { if (V) layoutBoard(); });
   if (window.ResizeObserver) new ResizeObserver(() => layoutBoard()).observe($("#boardWrap"));
+
+  // aim help (a personal setting): dim the cells where no ship that is left could still lie
+  let aimHelp = store.get(K.help) === true;
+  function impossible(F) {
+    const ok = G.possible(V.size, F.marks, F.left), out = new Set();
+    for (let c = 0; c < ok.length; c++) if (!ok[c] && F.marks[c] === ".") out.add(c);
+    return out;
+  }
 
   // special weapons: what they hit, what the buttons say
   const WEAPON = {
@@ -578,15 +594,13 @@
     const n = V.players.length, valid = (i) => i != null && i >= 0 && i < n;
     const foes = targets();
     const tk = `${V.round}:${V.turn}:${V.cur}:${V.me}`;
-    if (tk !== pickFocus.turn) { // a new turn: my turn aims at my last target, otherwise stay put
+    // The big board stays where the player put it. Only when it is your shot and the
+    // board shown cannot be shot at (your own, your partner's, a sunk fleet) it moves
+    // to your last target. Shots elsewhere light up the opponent's chip instead.
+    if (tk !== pickFocus.turn) {
       pickFocus.turn = tk;
       aimCell = null; weapon = "shot";
-      if (myTurn()) focus = foes.includes(pref) ? pref : foes[0];
-    }
-    const ls = V.lastShot, sk = ls ? `${V.round}:${ls.turn}:${ls.pi}:${ls.n}` : null;
-    if (ls && sk !== followed) { // follow other players' shots so everyone sees them land
-      followed = sk;
-      if (!myTurn() && V.phase === "play") focus = ls.target;
+      if (myTurn() && !foes.includes(focus)) focus = foes.includes(pref) ? pref : foes[0];
     }
     if (myTurn() && !foes.includes(focus) && focus !== V.me && !isMate(focus)) focus = foes[0];
     if (!valid(focus)) focus = V.me >= 0 ? (foes[0] != null ? foes[0] : V.me) : 0;
@@ -597,6 +611,7 @@
     const placing = V.phase === "place" && me >= 0 && !P.ready;
     const members = mode === "online" && R ? R.members : null;
     if (V.phase !== "place") pickFocus();
+    if (duo() && focus === me) focus = (me + 1) % n; // your own fleet has its own board below
     if (V.phase !== "roundEnd") peek = false;
 
     // opponents in seating order, starting with the player after me
@@ -620,6 +635,11 @@
     oppsEl.innerHTML = opps;
     $("#roundInfo").innerHTML = `Runde <b>${V.round}</b> · ${V.goal === 1 ? "eine Runde" : `bis ${V.goal} Siege`}` +
       (P ? ` · ${mode === "online" ? "du" : esc(P.name)}: <b>${P.wins}</b> ${P.wins === 1 ? "Sieg" : "Siege"}` : "");
+    if (ping) {
+      const el = ping.target === me ? (duo() ? $("#duoOwn") : $("#mine")) : oppsEl.querySelector(`[data-seat="${ping.target}"]`);
+      if (el) { const c = ping.res === "miss" ? "ping" : "ping hot"; el.classList.remove("ping", "hot"); void el.offsetWidth; el.classList.add(...c.split(" ")); }
+      ping = null;
+    }
     const act = oppsEl.querySelector(".opp.sel") || oppsEl.querySelector(".opp.active");
     if (act) oppsEl.scrollLeft = act.offsetLeft - (oppsEl.clientWidth - act.offsetWidth) / 2;
 
@@ -655,11 +675,19 @@
       paintBoard(board, {
         size: V.size, marks: F.marks, ships: F.ships, labels: true, buttons: true, aim, area,
         sonars: V.sonars.filter((s) => s.target === f), last: ls && ls.target === f && V.phase === "play" ? ls.cell : null,
-        anim: anim && anim.target === f ? anim : null
+        anim: anim && anim.target === f ? anim : null, nope: aimHelp && V.phase === "play" && f !== me && !isMate(f) && !F.out ? impossible(F) : null
       });
       board.classList.toggle("locked", !shoot);
     }
     board.classList.toggle("placing", placing);
+    const two = duo();
+    $("#game").classList.toggle("duo", two);
+    $("#duoOwn").hidden = !two;
+    if (two) {
+      paintBoard($("#board2"), { size: V.size, marks: P.marks, ships: P.ships, labels: true,
+        last: V.lastShot && V.lastShot.target === me && V.phase === "play" ? V.lastShot.cell : null, anim: anim && anim.target === me ? anim : null });
+      $("#duoFleet").innerHTML = fleetHTML(V.fleet, P.left);
+    }
     layoutBoard();
 
     // log
@@ -682,7 +710,7 @@
       $("#mineFleet").innerHTML = fleetHTML(V.fleet, P.left);
     } else {
       own.hidden = true; veil.hidden = false;
-      veil.textContent = "Flotten verdeckt";
+      veil.textContent = mode === "online" ? "Du schaust zu" : "Flotten verdeckt";
       $("#mineCap").textContent = "";
       $("#mineFleet").innerHTML = "";
     }
@@ -728,6 +756,9 @@
     } else if (me >= 0 && P.out) {
       who = `${curName} ist dran`;
       hint = "Deine Flotte ist versenkt. Du schaust zu.";
+    } else if (me < 0 && mode === "online") {
+      who = `${curName} ist dran`;
+      hint = "Du schaust zu. Tippe oben auf die Namen, um die Meere zu wechseln.";
     } else {
       who = `${curName} ist dran`;
       hint = V.players[V.cur].bot ? "Der Computer zielt …" : "Warte auf deinen Zug.";
@@ -751,7 +782,7 @@
     }
     $("#reactBtn").hidden = mode !== "online";
     $("#keys").innerHTML = placing ? "Schiffe mit der Maus ziehen · Klick dreht · <kbd>R</kbd> oder Rechtsklick dreht beim Ziehen"
-      : myTurn() ? `<kbd>←↑→↓</kbd> zielen · <kbd>Enter</kbd> Feuer · <kbd>1</kbd>–<kbd>${Math.max(1, n - 1)}</kbd> Gegner` +
+      : myTurn() ? `<kbd>←↑→↓</kbd> zielen · <kbd>Enter</kbd> Feuer${n > 2 ? ` · <kbd>1</kbd>–<kbd>${n - 1}</kbd> Gegner` : ""}` +
         (show.weapons ? ` · ${weapons().filter((w) => w !== "shot").map((w) => `<kbd>${WEAPON[w].key.toUpperCase()}</kbd> ${WEAPON[w].label}`).join(" · ")}` : "") : "";
 
     // turn change feedback
@@ -763,7 +794,7 @@
     if (V.phase === "roundEnd") {
       if (!peek) renderRoundEnd();
       const k = `${V.round}:${V.last.winners.join(",")}:${V.players.map((p) => p.wins).join(",")}`;
-      if (confettiFor !== k) { confettiFor = k; confetti(); sfx("win"); }
+      if (confettiFor !== k) { confettiFor = k; confetti(); sfx("win"); record(k); }
     }
   }
 
@@ -891,11 +922,12 @@
   }
 
   // ---------- reactions (online) ----------
-  function bubble(pi, e) {
-    const host = pi === (R && R.you) ? $("#dock") : document.querySelector(`#opps [data-seat="${pi}"]`);
+  function bubble(pi, e, who) {
+    const host = pi >= 0 && pi === (R && R.you) ? $("#dock") : pi >= 0 ? document.querySelector(`#opps [data-seat="${pi}"]`) : $("#dock");
     if (!host) return;
     const b = document.createElement("span");
-    b.className = "bubble"; b.textContent = e;
+    const text = e.length > 3;
+    b.className = "bubble" + (text ? " say" : ""); b.textContent = pi < 0 && who ? `${who}: ${e}` : e;
     host.appendChild(b);
     setTimeout(() => b.remove(), 2500);
     sfx("pop");
@@ -968,9 +1000,32 @@
     const box = $("#reFleets"), w = box.clientWidth || 300, cols = V.players.length > 2 ? 2 : V.players.length;
     box.style.setProperty("--fbs", Math.floor(Math.min(240, (w - (cols - 1) * 12) / cols)) + "px");
     $("#reBtn").textContent = last.over ? "Revanche" : "Nächste Runde";
+    $("#reBtn").hidden = mode === "online" && V.me < 0;
     const back = $("#reBack");
     if (mode === "local") { back.hidden = false; back.textContent = "Zur Spieler-Auswahl"; }
     else { back.hidden = R.host !== V.me; back.textContent = "Zurück in den Warteraum"; }
+  }
+
+  // Bilanz: results per name on this device (people only, online just yourself)
+  function record(key) {
+    const st = store.get(K.stats) || {};
+    if (st._last === key) return;
+    st._last = key;
+    const who = mode === "online" ? (V.me >= 0 ? [V.me] : []) : V.players.map((p, i) => (p.bot ? -1 : i)).filter((i) => i >= 0);
+    for (const i of who) {
+      const p = V.players[i], s = st[p.name] || (st[p.name] = { rounds: 0, wins: 0, shots: 0, hits: 0, sinks: 0 });
+      s.rounds++; s.shots += p.shots; s.hits += p.hits; s.sinks += p.sinks;
+      if (V.last.winners.includes(i)) s.wins++;
+    }
+    store.set(K.stats, st);
+  }
+  function renderStats() {
+    const st = store.get(K.stats) || {};
+    const rows = Object.keys(st).filter((k) => k !== "_last").map((name) => ({ name, ...st[name] }))
+      .sort((a, b) => b.wins - a.wins || b.rounds - a.rounds).slice(0, 8);
+    $("#statsPanel").hidden = !rows.length;
+    $("#statsList").innerHTML = rows.map((r) =>
+      `<li><span>${esc(r.name)}<small>${r.shots ? Math.round((r.hits / r.shots) * 100) : 0} % Treffer · ${r.sinks} versenkt</small></span><b>${r.wins} von ${r.rounds}</b></li>`).join("");
   }
 
   function segHTML(list, cur) {
@@ -979,6 +1034,7 @@
 
   function renderHome(force) {
     renderLocalRules();
+    renderStats();
     for (const b of document.querySelectorAll("#modeTabs button")) b.setAttribute("aria-pressed", String(b.dataset.tab === tab));
     // never hide the online form on a web address: a failed check (ad blocker, slow
     // network) must not lock people out; connecting will tell if there really is no server
@@ -1027,7 +1083,9 @@
     $("#joinHint").textContent = "Die anderen scannen den QR-Code oder öffnen den Link und geben den Code ein." + (lan ? " Alle müssen im selben WLAN sein." : "");
     const host = R.you === R.host;
     const teams = R.rules.teams && R.members.length === 4;
-    $("#membersLabel").textContent = `Spieler (${R.members.length}/${G.MAX_PLAYERS})`;
+    const watching = R.you < 0, seen = R.watchers || [];
+    $("#membersLabel").textContent = `Spieler (${R.members.length}/${G.MAX_PLAYERS})` + (seen.length ? ` · ${seen.length} ${seen.length === 1 ? "schaut" : "schauen"} zu` : "");
+    $("#sitBtn").hidden = !watching || R.members.length >= G.MAX_PLAYERS;
     $("#members").innerHTML = R.members.map((m, i) =>
       `<li class="${i === R.you ? "me" : ""}">${m.bot ? `<span class="botico">${ICON.bot}</span>` : `<span class="on${m.online ? "" : " off"}"></span>`}<span class="nm">${esc(m.name)}</span>` +
       `${teams ? `<span class="tag team t${i % 2}">${i % 2 ? "Team Rot" : "Team Blau"}</span>` : ""}` +
@@ -1048,12 +1106,21 @@
     $("#rulesLobbySum").textContent = onR.length ? onR.join(", ") : "keine";
     $("#rulesLobbyHint").textContent = host ? "Tippe an, was gelten soll. Alle sehen deine Auswahl." : `${R.members[R.host].name} legt die Regeln fest.`;
     const humansOn = R.members.filter((m) => !m.bot && m.online).length, humansAll = R.members.filter((m) => !m.bot).length;
-    $("#lobbyHint").textContent = host
+    $("#lobbyHint").textContent = watching
+      ? (R.members.length >= G.MAX_PLAYERS ? "Du schaust zu. Der Raum ist voll, wird ein Platz frei, kannst du mitspielen." : "Du schaust zu. Tippe auf „Mitspielen“, um einen freien Platz zu nehmen.")
+      : host
       ? (R.members.length < 2 ? "Warte auf Mitspieler, oder hol dir einen Computer-Gegner dazu." : `${humansOn} von ${humansAll} Menschen online.${R.rules.teams && !teams ? " Teams gibt es nur zu viert." : ""}`)
       : `Warte, bis ${R.members[R.host].name} das Spiel startet.`;
   }
   $("#members").addEventListener("click", (e) => { const b = e.target.closest("[data-unbot]"); if (b) wsSend({ t: "unbot", i: +b.dataset.unbot }); });
   $("#addBot").addEventListener("click", () => wsSend({ t: "bot" }));
+  $("#sitBtn").addEventListener("click", () => wsSend({ t: "sit" }));
+  $("#statsReset").addEventListener("click", (e) => { // second tap within 3 s deletes
+    const b = e.currentTarget;
+    if (b.dataset.armed) { store.del(K.stats); delete b.dataset.armed; b.textContent = "Bilanz löschen"; b.classList.remove("btn-danger"); renderStats(); return; }
+    b.dataset.armed = "1"; b.textContent = "Sicher? Nochmal tippen"; b.classList.add("btn-danger");
+    setTimeout(() => { delete b.dataset.armed; b.textContent = "Bilanz löschen"; b.classList.remove("btn-danger"); }, 3000);
+  });
   $("#sizeOnline").addEventListener("click", (e) => { const b = e.target.closest("[data-v]"); if (b && R && R.you === R.host) wsSend({ t: "settings", size: +b.dataset.v }); });
   $("#goalOnline").addEventListener("click", (e) => { const b = e.target.closest("[data-v]"); if (b && R && R.you === R.host) wsSend({ t: "settings", goal: +b.dataset.v }); });
   $("#levelOnline").addEventListener("click", (e) => { const b = e.target.closest("[data-v]"); if (b && R && R.you === R.host) wsSend({ t: "settings", level: +b.dataset.v }); });
@@ -1094,7 +1161,8 @@
       retry = 0; clearTimeout(giveUpT);
       if (serverState !== "ok") { serverState = "ok"; server = server || {}; }
       const s = store.get(K.online);
-      if (s && !queue.some((m) => m.t === "create" || m.t === "join")) sock.send(JSON.stringify({ t: "resume", code: s.code, secret: s.secret }));
+      if (s && !queue.some((m) => m.t === "create" || m.t === "join"))
+        sock.send(JSON.stringify(s.watch ? { t: "join", code: s.code, name: s.watch } : { t: "resume", code: s.code, secret: s.secret }));
       for (const m of queue.splice(0)) sock.send(JSON.stringify(m));
       render();
     };
@@ -1124,7 +1192,12 @@
     return false;
   }
   function onMsg(m) {
-    if (m.t === "joined") {
+    if (m.t === "watching") {
+      store.set(K.online, { code: m.code, watch: m.name });
+      wantOnline = true; mode = "online";
+      if (location.search) history.replaceState(null, "", location.pathname);
+      toast("Das Spiel läuft schon oder der Raum ist voll: Du schaust zu.");
+    } else if (m.t === "joined") {
       store.set(K.online, { code: m.code, secret: m.secret });
       wantOnline = true;
       mode = "online";
@@ -1135,7 +1208,7 @@
       if (m.view) handleEvents(m.events, m.view);
       render();
     } else if (m.t === "react") {
-      bubble(m.pi, m.e);
+      bubble(m.pi, m.e, m.name);
     } else if (m.t === "error") {
       inflight = false;
       toast(m.msg);
@@ -1249,6 +1322,8 @@
   }
   $("#menuBtn").addEventListener("click", () => {
     scoreList($("#menuScores"), []);
+    $("#menuLog").innerHTML = V ? V.log.slice().reverse().map((l) => `<li>${esc(l)}</li>`).join("") : "";
+    $("#aimHelp").checked = aimHelp;
     const on = activeNames(V ? V.rules : {});
     const size = V ? `Spielfeld ${V.size}×${V.size}, ${V.goal === 1 ? "eine Runde" : `bis ${V.goal} Siege`}.` : "";
     $("#menuRules").textContent = `${size} ${on.length ? `Hausregeln: ${on.join(", ")}.` : "Keine Hausregeln."}`;
@@ -1270,6 +1345,7 @@
     $("#menu").hidden = false;
   });
   $("#menuClose").addEventListener("click", () => { $("#menu").hidden = true; });
+  $("#aimHelp").addEventListener("change", (e) => { aimHelp = e.target.checked; store.set(K.help, aimHelp); if (V) renderGame(); });
 
   // keep the screen on while playing (needs HTTPS; silently skipped otherwise)
   let lock = null;

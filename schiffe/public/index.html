@@ -179,6 +179,10 @@ button.cell{cursor:crosshair}
 .opp.sel{background:var(--surface);box-shadow:inset 0 0 0 1.5px #fff}
 .opp.active{box-shadow:inset 0 0 0 2.5px var(--accent)}
 .opp.out{opacity:.5}
+.opp.ping,.mine.ping .board,.duo-own.ping .board{animation:ping .9s ease-out}
+.opp.ping.hot,.mine.ping.hot .board,.duo-own.ping.hot .board{animation:pinghot .9s ease-out}
+@keyframes ping{0%{box-shadow:inset 0 0 0 2px #fff,0 0 0 0 rgba(255,255,255,.7)}100%{box-shadow:inset 0 0 0 1.5px var(--line),0 0 0 12px rgba(255,255,255,0)}}
+@keyframes pinghot{0%{box-shadow:inset 0 0 0 2.5px var(--red),0 0 0 0 rgba(224,57,62,.8);background:#4a1a26}100%{box-shadow:inset 0 0 0 1.5px var(--line),0 0 0 14px rgba(224,57,62,0)}}
 .opp .oname{max-width:100%;font-size:13px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .opp .fleet i{height:5px;width:calc(var(--l) * 4.5px)}
 .opp .ocount{position:absolute;top:-4px;right:-4px;min-width:22px;height:22px;padding:0 6px;border-radius:11px;display:grid;place-items:center;
@@ -196,7 +200,13 @@ button.cell{cursor:crosshair}
 .bhead .fleet{justify-content:flex-end;max-width:52%;flex:none}
 .btitle{font-family:var(--display);font-size:18px;line-height:1.1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .btitle small{font-family:var(--ui);font-size:12px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-right:6px}
-.board-wrap{flex:1;min-height:120px;width:100%;display:grid;place-items:center}
+.board-wrap{flex:1;min-height:120px;width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px}
+/* desktop with two players: both seas on top of each other, like the board game */
+.duo-own{display:flex;flex-direction:column;align-items:center;gap:6px}
+.duo-own .bhead{width:var(--bs)}
+.duo-own .board{box-shadow:inset 0 0 0 1.5px var(--line)}
+#game.duo .mine{display:none}
+#game.duo .dock{margin-top:48px}
 .harbor{display:flex;justify-content:safe center;gap:6px;width:calc(100% + 32px);margin:0 -16px;padding:2px 16px;overflow-x:auto;scrollbar-width:none;flex:none}
 .harbor::-webkit-scrollbar{display:none}
 .harbor button{flex:none;border:0;border-radius:12px;padding:7px 9px;white-space:nowrap;background:var(--bg2);box-shadow:inset 0 0 0 1.5px var(--line);display:flex;flex-direction:column;align-items:center;gap:5px;font-size:11px;font-weight:800;color:var(--muted)}
@@ -310,6 +320,14 @@ button.cell{cursor:crosshair}
 #reactBar{position:fixed;z-index:45;top:calc(env(safe-area-inset-top,0px) + 62px);right:16px;display:flex;gap:4px;padding:6px;border-radius:16px;background:var(--surface);box-shadow:inset 0 0 0 1.5px var(--line),0 12px 30px rgba(0,0,0,.5)}
 #reactBar button{border:0;background:transparent;font-size:28px;width:46px;height:46px;border-radius:12px;line-height:1}
 #reactBar button:active{background:var(--bg2)}
+#reactBar{flex-wrap:wrap;max-width:320px;justify-content:center}
+#reactBar .says{display:grid;grid-template-columns:1fr 1fr;gap:4px;width:100%}
+#reactBar .says button{width:auto;height:auto;font-size:14px;font-weight:700;padding:9px 8px;background:var(--bg2)}
+.bubble.say{font-size:14px;font-weight:800;white-space:nowrap;background:#fff;color:#1a1426;padding:6px 10px;border-radius:12px;filter:none;box-shadow:0 6px 16px rgba(0,0,0,.4)}
+.dock .bubble.say{font-size:15px}
+.cell.nope{opacity:.3}
+.history{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:4px;max-height:240px;overflow-y:auto;font-size:13px}
+.history li{padding:6px 10px;border-radius:10px;background:var(--bg)}
 .bubble{position:absolute;z-index:5;left:50%;top:-6px;font-size:34px;line-height:1;pointer-events:none;transform:translateX(-50%);animation:floatup 2.4s ease-out forwards;filter:drop-shadow(0 4px 6px rgba(0,0,0,.5))}
 .dock .bubble{top:-24px;font-size:40px}
 @keyframes floatup{0%{transform:translate(-50%,10px) scale(.4);opacity:0}15%{transform:translate(-50%,0) scale(1.15);opacity:1}75%{opacity:1}100%{transform:translate(-50%,-46px) scale(1);opacity:0}}
@@ -421,6 +439,11 @@ button.cell{cursor:crosshair}
       </details>
       <button class="btn btn-primary btn-block" id="startLocal" type="button">Neues Spiel starten</button>
     </div>
+    <div class="panel" id="statsPanel" hidden>
+      <div class="label">Bilanz auf diesem Gerät</div>
+      <ol class="scores" id="statsList"></ol>
+      <button class="btn btn-ghost" id="statsReset" type="button">Bilanz löschen</button>
+    </div>
     <p class="hint">Jeder gegen jeden: Wer dran ist, sucht sich aus, auf wessen Flotte er schießt. Alle Schüsse sind für alle sichtbar. Wer als Letzter noch Schiffe hat, gewinnt.</p>
   </section>
 
@@ -438,6 +461,7 @@ button.cell{cursor:crosshair}
       <div class="label" id="membersLabel"></div>
       <ul class="members" id="members"></ul>
       <button class="btn btn-ghost" id="addBot" type="button">+ Computer-Gegner</button>
+      <button class="btn btn-primary" id="sitBtn" type="button" hidden>Mitspielen</button>
       <p class="hint" id="lobbyHint"></p>
     </div>
     </div><div class="col">
@@ -479,7 +503,9 @@ button.cell{cursor:crosshair}
 
     <div class="arena">
       <div class="bhead"><div class="btitle" id="boardTitle"></div><div class="fleet" id="boardFleet"></div></div>
-      <div class="board-wrap" id="boardWrap"><div class="board" id="board"></div></div>
+      <div class="board-wrap" id="boardWrap"><div class="board" id="board"></div>
+        <div class="duo-own" id="duoOwn" hidden><div class="bhead"><div class="btitle"><small>Du</small>Deine Flotte</div><div class="fleet" id="duoFleet"></div></div><div class="board" id="board2"></div></div>
+      </div>
       <div class="weapons" id="weapons" role="group" aria-label="Waffe" hidden></div>
       <div class="harbor" id="harbor" hidden></div>
       <div class="placebar" id="placeBar" hidden>
@@ -557,7 +583,9 @@ button.cell{cursor:crosshair}
         </ul>
       </details>
     </div>
+    <div class="rules"><details><summary>Spielverlauf</summary><ol class="history" id="menuLog"></ol></details></div>
     <div class="hint" id="menuRules"></div>
+    <label class="toggle" for="aimHelp"><input type="checkbox" id="aimHelp"><span>Zielhilfe<small>Dunkelt Felder ab, auf denen kein übriges Schiff mehr liegen kann.</small></span></label>
     <label class="toggle" for="soundOn"><input type="checkbox" id="soundOn" checked><span>Töne und Vibration</span></label>
     <div id="menuActions"></div>
     <button class="btn btn-primary btn-block" id="menuClose" type="button">Weiterspielen</button>
@@ -567,6 +595,8 @@ button.cell{cursor:crosshair}
 <div id="reactBar" hidden>
   <button type="button" data-e="👍">👍</button><button type="button" data-e="😂">😂</button><button type="button" data-e="😱">😱</button>
   <button type="button" data-e="😡">😡</button><button type="button" data-e="🎉">🎉</button><button type="button" data-e="🙈">🙈</button>
+  <div class="says"><button type="button" data-e="Na warte!">Na warte!</button><button type="button" data-e="Glück gehabt!">Glück gehabt!</button>
+  <button type="button" data-e="Knapp daneben!">Knapp daneben!</button><button type="button" data-e="Gut gespielt!">Gut gespielt!</button></div>
 </div>
 <canvas id="confetti" hidden></canvas>
 
