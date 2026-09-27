@@ -18,6 +18,7 @@ const SAVE_FILE = path.join(DATA_DIR, "rooms.json");
 const MAX_PLAYERS = 10;
 const MAX_ROOMS = 200;
 const ROOM_TTL = 12 * 3600 * 1000;
+const REACTIONS = ["👍", "😂", "😱", "😡", "🎉", "🙈"];
 const QR_LIB = require.resolve("qrcode-generator/qrcode.js");
 
 const TYPES = {
@@ -89,7 +90,7 @@ function broadcast(room, events) {
   for (const ws of sockets.get(room.code) || []) {
     if (ws.pid == null) continue;
     send(ws, {
-      t: "room", code: room.code, you: ws.pid, host: room.host, goal: room.goal, chaos: !!room.chaos, members,
+      t: "room", code: room.code, you: ws.pid, host: room.host, goal: room.goal, chaos: !!room.chaos, stack: !!room.stack, members,
       view: room.state ? Uno.view(room.state, ws.pid) : null, events: events || []
     });
   }
@@ -124,7 +125,7 @@ function handle(ws, msg) {
       if (!name) return err("Bitte gib deinen Namen ein.");
       if (rooms.size >= MAX_ROOMS) return err("Der Server ist voll. Versuch es später nochmal.");
       const goal = [0, 250, 500].includes(+msg.goal) ? +msg.goal : 500;
-      const r = { code: newCode(), host: 0, goal, chaos: !!msg.chaos, members: [{ name, secret: crypto.randomUUID() }], state: null, touched: Date.now() };
+      const r = { code: newCode(), host: 0, goal, chaos: !!msg.chaos, stack: !!msg.stack, members: [{ name, secret: crypto.randomUUID() }], state: null, touched: Date.now() };
       rooms.set(r.code, r);
       attach(ws, r, 0);
       broadcast(r); saveRooms();
@@ -176,7 +177,7 @@ function handle(ws, msg) {
       if (ws.pid !== room.host) return err("Nur wer den Raum erstellt hat, kann starten.");
       if (room.state) return;
       if (room.members.length < 2) return err("Es braucht mindestens 2 Spieler.");
-      room.state = Uno.newGame(room.members.map((m) => m.name), room.goal, { chaos: room.chaos });
+      room.state = Uno.newGame(room.members.map((m) => m.name), room.goal, { chaos: room.chaos, stack: room.stack });
       broadcast(room); saveRooms();
       return;
     }
@@ -194,6 +195,14 @@ function handle(ws, msg) {
       }
       broadcast(room, expired.concat(res.events || [])); saveRooms();
       scheduleUno(room);
+      return;
+    }
+    case "react": { // emoji for everyone at the table, at most one per second
+      if (!room || !REACTIONS.includes(msg.e)) return;
+      const now = Date.now();
+      if (now - (ws.lastReact || 0) < 1000) return;
+      ws.lastReact = now;
+      for (const s of sockets.get(room.code) || []) if (s.pid != null) send(s, { t: "react", pi: ws.pid, e: msg.e });
       return;
     }
     case "end": { // host closes the game and returns everyone to the lobby

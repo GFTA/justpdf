@@ -16,6 +16,8 @@ gezogene Karte direkt legen oder behalten, Punktezählung bis 500 / 250 / eine R
 2–10 Spieler. Wer die vorletzte Karte legt, bekommt einen großen **UNO!**-Knopf und hat
 3 Sekunden Zeit, sonst gibt es 2 Strafkarten. Im **Chaos-Modus** sind alle Sonderkarten
 doppelt im Stapel (140 statt 108 Karten).
+Optional lassen sich **+2 und +4 stapeln**. Online gibt es **Emoji-Reaktionen**,
+dazu Töne, Vibration und Konfetti für den Sieger (im Menü abschaltbar).
 
 ## Auf dem HP Mini installieren
 

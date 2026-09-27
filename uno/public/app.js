@@ -33,12 +33,14 @@
   // ---------- helpers ----------
   const esc = (s) => String(s).replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
   const myTurn = () => !!V && (V.phase === "play" || V.phase === "drawn") && V.cur === V.me;
-  const fits = (c) => c.c === "w" || c.c === V.color || c.v === V.top.v;
+  const stackOk = (c) => !V.pending || (V.top.v === "d2" ? c.v === "d2" || c.v === "d4" : c.v === "d4");
+  const fits = (c) => stackOk(c) && (c.c === "w" || c.c === V.color || c.v === V.top.v);
   const playable = (c) => myTurn() && (V.phase === "drawn" ? c.id === V.drawnId && fits(c) : fits(c));
   const pname = (i) => (i === V.me && mode === "online" ? "du" : V.players[i].name);
   function whyNot(c) {
     if (!myTurn()) return `Warte, ${V.players[V.cur].name} ist dran.`;
     if (V.phase === "drawn" && c.id !== V.drawnId) return "Nach dem Ziehen darfst du nur die gezogene Karte legen.";
+    if (V.pending) return `Leg eine ${V.top.v === "d2" ? "+2 oder +4" : "+4"} drauf oder zieh ${V.pending} Karten vom Stapel.`;
     return `Passt nicht. Gesucht: ${G.CNAME[V.color]} oder ${V.top.c === "w" ? "eine Farbwahl-Karte" : G.VNAME[V.top.v] || V.top.v}.`;
   }
   const sortHand = (h) => [...h].sort((a, b) =>
@@ -71,13 +73,45 @@
     const el = document.querySelector(`#hand [data-id="${id}"]`);
     if (el) { el.classList.remove("shake"); void el.offsetWidth; el.classList.add("shake"); }
   }
-  const buzz = (ms) => { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} };
+  let soundOn = store.get("passuno.sound") !== false;
+  const buzz = (ms) => { if (!soundOn) return; try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} };
+
+  // tiny synthesized sound effects, no files needed; iOS unlocks audio on the first touch
+  let actx = null;
+  function audio() {
+    if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; } }
+    if (actx.state === "suspended") actx.resume().catch(() => {});
+    return actx;
+  }
+  document.addEventListener("pointerdown", () => { if (soundOn) audio(); }, { once: true, capture: true });
+  function tone(freq, start, dur, type = "sine", vol = 0.18) {
+    const a = audio(); if (!a) return;
+    const t = a.currentTime + start, o = a.createOscillator(), g = a.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(a.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  const SFX = {
+    card: () => { tone(520, 0, 0.07, "triangle", 0.2); tone(340, 0.03, 0.08, "triangle", 0.12); },
+    draw: () => tone(260, 0, 0.1, "triangle", 0.14),
+    turn: () => { tone(660, 0, 0.12); tone(880, 0.12, 0.18); },
+    uno: () => { tone(523, 0, 0.1, "square", 0.08); tone(659, 0.09, 0.1, "square", 0.08); tone(784, 0.18, 0.22, "square", 0.08); },
+    alarm: () => { tone(880, 0, 0.08, "square", 0.07); tone(880, 0.16, 0.08, "square", 0.07); },
+    bad: () => { tone(300, 0, 0.14, "sawtooth", 0.08); tone(200, 0.14, 0.24, "sawtooth", 0.08); },
+    win: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.11, 0.25, "triangle", 0.16)),
+    pop: () => tone(740, 0, 0.06, "sine", 0.12)
+  };
+  const sfx = (k) => { if (soundOn && document.visibilityState === "visible") try { SFX[k](); } catch (e) {} };
 
   // ---------- actions ----------
   function localEvents(events, turnBefore) {
     for (const ev of events || []) {
-      if (ev.t === "uno") flashUno(L.players[ev.pi].name);
-      if (ev.t === "penalty") toast(`${L.players[ev.pi].name} war zu langsam: 2 Strafkarten!`);
+      if (ev.t === "played") sfx("card");
+      if (ev.t === "drew" || ev.t === "took") sfx("draw");
+      if (ev.t === "uno") { flashUno(L.players[ev.pi].name); sfx("uno"); }
+      if (ev.t === "penalty") { toast(`${L.players[ev.pi].name} war zu langsam: 2 Strafkarten!`); sfx("bad"); }
       if (ev.t === "drew" && L.turn !== turnBefore) {
         const c = L.players[ev.pi].hand.find((x) => x.id === ev.id);
         if (c) toast(`Gezogen: ${G.cardName(c)}. Passt nicht, dein Zug ist vorbei.`);
@@ -255,7 +289,7 @@
       $("#handoff").hidden = true; $("#roundEnd").hidden = true;
       showScreen("home"); renderHome();
     }
-    $("#net").hidden = !(mode === "online" && wantOnline && !(ws && ws.readyState === 1));
+    updateNet();
   }
 
   function fanMini(n) {
@@ -302,16 +336,28 @@
     if (V.phase === "roundEnd") { who = "Runde vorbei"; hint = ""; }
     else if (mine) {
       who = mode === "local" ? `${V.players[V.me].name}, du bist dran` : "Du bist dran";
-      if (V.phase === "drawn" && drawn) hint = `Gezogen: ${G.cardName(drawn)}. Leg sie auf den Stapel oder behalte sie.`;
+      if (V.pending) hint = V.hand.some(fits)
+        ? `Stapeln: leg eine ${V.top.v === "d2" ? "+2 oder +4" : "+4"} drauf, oder zieh ${V.pending} Karten vom Stapel.`
+        : `Du musst ${V.pending} Karten ziehen: zieh vom Stapel zu dir.`;
+      else if (V.phase === "drawn" && drawn) hint = `Gezogen: ${G.cardName(drawn)}. Leg sie auf den Stapel oder behalte sie.`;
       else hint = V.hand.some(fits) ? "Zieh eine helle Karte auf den Ablagestapel." : "Nichts passt. Zieh eine Karte vom Stapel zu dir.";
     } else {
       who = `${V.players[V.cur].name} ist dran`;
-      hint = V.log[V.log.length - 1] || "";
+      hint = V.pending && V.cur !== V.me ? `${V.players[V.cur].name} muss ${V.pending} ziehen oder stapeln.` : "Warte auf deinen Zug.";
     }
     $("#whoName").textContent = who;
     $("#whoHint").textContent = hint;
     $("#keepBtn").hidden = !(mine && V.phase === "drawn");
     $("#chaosTag").hidden = !V.chaos;
+    $("#pendingTag").hidden = !V.pending;
+    $("#pendingTag").textContent = `+${V.pending} offen`;
+    const lm = $("#lastMove"), lines = V.log.slice(-2), lmKey = lines.join("\n");
+    if (lm.dataset.k !== lmKey) {
+      lm.dataset.k = lmKey;
+      lm.innerHTML = lines.map((l, i) => `<div${i < lines.length - 1 ? ' class="old"' : ""}>${esc(l)}</div>`).join("");
+      lm.classList.remove("fresh"); void lm.offsetWidth; lm.classList.add("fresh");
+    }
+    $("#reactBtn").hidden = mode !== "online";
 
     // hand
     if (sel != null && !V.hand.some((c) => c.id === sel && playable(c))) sel = null;
@@ -325,12 +371,56 @@
 
     // turn change feedback
     const key = `${V.round}:${V.turn}`;
-    if (mode === "online" && mine && lastTurn !== key && lastTurn !== null) buzz([40, 60, 40]);
+    if (mode === "online" && mine && lastTurn !== key && lastTurn !== null) { buzz([40, 60, 40]); sfx("turn"); }
     lastTurn = key;
 
     $("#roundEnd").hidden = V.phase !== "roundEnd";
-    if (V.phase === "roundEnd") renderRoundEnd();
+    if (V.phase === "roundEnd") {
+      renderRoundEnd();
+      const k = `${V.round}:${V.last.winner}:${V.players[V.last.winner].score}`;
+      if (confettiFor !== k) { confettiFor = k; confetti(); sfx("win"); }
+    }
   }
+
+  // ---------- confetti ----------
+  let confettiFor = null;
+  function confetti() {
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const cv = $("#confetti"), ctx = cv.getContext("2d"), dpr = Math.min(2, devicePixelRatio || 1);
+    cv.width = innerWidth * dpr; cv.height = innerHeight * dpr; cv.hidden = false;
+    const cols = ["#e0393e", "#f2c230", "#2fa35b", "#2d6fd6", "#ffffff"];
+    const ps = Array.from({ length: 140 }, () => ({
+      x: Math.random() * cv.width, y: -Math.random() * cv.height * 0.5, w: (6 + Math.random() * 6) * dpr, h: (10 + Math.random() * 8) * dpr,
+      vx: (Math.random() - 0.5) * 3 * dpr, vy: (2 + Math.random() * 4) * dpr, r: Math.random() * 6, vr: (Math.random() - 0.5) * 0.3, c: cols[(Math.random() * 5) | 0]
+    }));
+    const t0 = performance.now();
+    (function frame(t) {
+      ctx.clearRect(0, 0, cv.width, cv.height);
+      for (const p of ps) {
+        p.x += p.vx; p.y += p.vy; p.vy += 0.05 * dpr; p.r += p.vr;
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.r); ctx.fillStyle = p.c; ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h); ctx.restore();
+      }
+      if (t - t0 < 3200) requestAnimationFrame(frame); else { ctx.clearRect(0, 0, cv.width, cv.height); cv.hidden = true; }
+    })(t0);
+  }
+
+  // ---------- reactions (online) ----------
+  function bubble(pi, e) {
+    const host = pi === (R && R.you) ? $("#dock") : document.querySelector(`#opps [data-seat="${pi}"]`);
+    if (!host) return;
+    const b = document.createElement("span");
+    b.className = "bubble"; b.textContent = e;
+    host.appendChild(b);
+    setTimeout(() => b.remove(), 2500);
+    sfx("pop");
+  }
+  $("#reactBtn").addEventListener("click", (e) => { e.stopPropagation(); $("#reactBar").hidden = !$("#reactBar").hidden; });
+  $("#reactBar").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-e]"); if (!b) return;
+    $("#reactBar").hidden = true;
+    wsSend({ t: "react", e: b.dataset.e });
+  });
+  document.addEventListener("pointerdown", (e) => { if (!e.target.closest("#reactBar, #reactBtn")) $("#reactBar").hidden = true; });
 
   // ---------- big UNO button ----------
   let unoKey = null, unoEnd = 0, unoTimer = null;
@@ -357,7 +447,7 @@
     big.style.setProperty("--ms", Math.round(w.ms) + "ms");
     big.classList.remove("run"); void big.offsetWidth; big.classList.add("run");
     box.hidden = false;
-    buzz([60, 40, 60]);
+    buzz([60, 40, 60]); sfx("alarm");
     const tickSec = () => {
       const left = unoEnd - Date.now();
       if (left <= 0) { clearInterval(unoTimer); box.hidden = true; return; }
@@ -457,7 +547,7 @@
     const host = R.you === R.host;
     $("#startOnline").hidden = !host;
     $("#startOnline").disabled = R.members.length < 2;
-    const goalTxt = (R.goal ? `Gespielt wird bis ${R.goal} Punkte.` : "Gespielt wird eine Runde.") + (R.chaos ? " Chaos-Modus ist an." : "");
+    const goalTxt = (R.goal ? `Gespielt wird bis ${R.goal} Punkte.` : "Gespielt wird eine Runde.") + (R.chaos ? " Chaos-Modus ist an." : "") + (R.stack ? " +2/+4 stapeln ist an." : "");
     $("#lobbyHint").textContent = host
       ? (R.members.length < 2 ? `Warte auf Mitspieler. ${goalTxt}` : `${on} von ${R.members.length} online. ${goalTxt}`)
       : `Warte, bis ${R.members[R.host].name} das Spiel startet. ${goalTxt}`;
@@ -476,6 +566,14 @@
     const s = document.createElement("script");
     s.src = "vendor/qrcode.js"; s.onload = paint; s.onerror = () => { box.hidden = true; };
     document.head.appendChild(s);
+  }
+
+  // connection pill: only after a short grace period, phones drop sockets all the time
+  let netT = null;
+  function updateNet() {
+    const down = mode === "online" && wantOnline && !(ws && ws.readyState === 1);
+    if (!down) { clearTimeout(netT); netT = null; $("#net").hidden = true; return; }
+    if (!netT && $("#net").hidden) netT = setTimeout(() => { netT = null; if (mode === "online" && !(ws && ws.readyState === 1)) $("#net").hidden = false; }, 2000);
   }
 
   // ---------- online connection ----------
@@ -513,8 +611,10 @@
       if (m.view) {
         const v = m.view;
         for (const ev of m.events || []) {
-          if (ev.t === "uno") flashUno(ev.pi === v.me ? "" : v.players[ev.pi].name);
-          if (ev.t === "penalty") toast(ev.pi === v.me ? "Zu langsam: 2 Strafkarten!" : `${v.players[ev.pi].name} war zu langsam: 2 Strafkarten!`);
+          if (ev.t === "played") sfx("card");
+          if ((ev.t === "drew" || ev.t === "took") && ev.pi === v.me) sfx("draw");
+          if (ev.t === "uno") { flashUno(ev.pi === v.me ? "" : v.players[ev.pi].name); sfx("uno"); }
+          if (ev.t === "penalty") { toast(ev.pi === v.me ? "Zu langsam: 2 Strafkarten!" : `${v.players[ev.pi].name} war zu langsam: 2 Strafkarten!`); sfx("bad"); }
           if (ev.t === "drew" && ev.pi === v.me && v.drawnId == null) {
             const c = v.hand.find((x) => x.id === ev.id);
             if (c) toast(`Gezogen: ${G.cardName(c)}. Passt nicht, dein Zug ist vorbei.`);
@@ -522,6 +622,8 @@
         }
       }
       render();
+    } else if (m.t === "react") {
+      bubble(m.pi, m.e);
     } else if (m.t === "error") {
       toast(m.msg);
     } else if (m.t === "gone" || m.t === "left") {
@@ -539,7 +641,9 @@
   $("#goalLocal").addEventListener("click", (e) => { const b = e.target.closest("[data-goal]"); if (b) { goalLocal = +b.dataset.goal; renderHome(); } });
 
   $("#myName").value = store.get(K.me) || "";
-  for (const id of ["chaosLocal", "chaosOnline"]) {
+  $("#soundOn").checked = soundOn;
+  $("#soundOn").addEventListener("change", (e) => { soundOn = e.target.checked; store.set("passuno.sound", soundOn); if (soundOn) { audio(); sfx("pop"); } });
+  for (const id of ["chaosLocal", "chaosOnline", "stackLocal", "stackOnline"]) {
     $("#" + id).checked = !!store.get("passuno." + id);
     $("#" + id).addEventListener("change", (e) => store.set("passuno." + id, e.target.checked));
   }
@@ -562,7 +666,7 @@
   $("#createBtn").addEventListener("click", () => {
     const n = myName(); if (!n) return;
     store.del(K.online);
-    wsSend({ t: "create", name: n, goal: goalOnline, chaos: $("#chaosOnline").checked });
+    wsSend({ t: "create", name: n, goal: goalOnline, chaos: $("#chaosOnline").checked, stack: $("#stackOnline").checked });
   });
 
   $("#plist").addEventListener("input", (e) => { if (e.target.dataset.i != null) { names[+e.target.dataset.i] = e.target.value; store.set(K.names, names); } });
@@ -578,7 +682,7 @@
     const el = document.getElementById(`pname-${names.length - 1}`); if (el) el.focus();
   });
   $("#startLocal").addEventListener("click", () => {
-    L = G.newGame(names.map((n, i) => n.trim() || `Spieler ${i + 1}`), goalLocal, { chaos: $("#chaosLocal").checked });
+    L = G.newGame(names.map((n, i) => n.trim() || `Spieler ${i + 1}`), goalLocal, { chaos: $("#chaosLocal").checked, stack: $("#stackLocal").checked });
     mode = "local"; hidden = true; store.set(K.local, L); render(); wake();
   });
   $("#resumeBtn").addEventListener("click", () => {

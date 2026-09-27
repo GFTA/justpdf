@@ -69,6 +69,12 @@ test("create, join, start and play over WebSockets", async () => {
   const after = await waiting.next((m) => m.t === "room" && m.events.some((e) => e.t === "drew"));
   assert.strictEqual(after.view.players[cur].count, 8);
 
+  // emoji reactions reach everybody, junk is ignored
+  a.send({ t: "react", e: "<script>" });
+  b.send({ t: "react", e: "🎉" });
+  const r = await a.next((m) => m.t === "react");
+  assert.deepStrictEqual([r.pi, r.e], [1, "🎉"]);
+
   // reconnect with the stored secret
   a.ws.close();
   const a2 = client(port); await a2.open;

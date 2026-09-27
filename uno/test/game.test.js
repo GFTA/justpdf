@@ -106,6 +106,49 @@ test("playing the last card without having called UNO costs two cards", () => {
   assert.strictEqual(S.players[0].hand.length, 2);
 });
 
+test("stacking passes +2 and +4 on until someone draws", () => {
+  const S = G.newGame(["a", "b", "c"], 0, { stack: true });
+  S.cur = 0; S.dir = 1; S.discard = [card("r", "5", 900)]; S.color = "r";
+  S.players[0].hand = [card("r", "d2", 901), card("r", "1", 950), card("r", "2", 951)];
+  S.players[1].hand = [card("b", "d2", 902), card("g", "d2", 952), card("y", "7", 953)];
+  S.players[2].hand = [card("w", "d4", 903), card("b", "d2", 954), card("y", "8", 955)];
+  G.act(S, 0, { t: "play", id: 901 });
+  assert.strictEqual(S.cur, 1, "no skip yet");
+  assert.strictEqual(S.pending, 2);
+  assert.strictEqual(S.players[1].hand.length, 3, "nothing drawn yet");
+  assert.strictEqual(G.act(S, 1, { t: "play", id: 953 }).ok, false, "only +2/+4 while stacking");
+  G.act(S, 1, { t: "play", id: 902 });
+  assert.strictEqual(S.pending, 4);
+  G.act(S, 2, { t: "play", id: 903, color: "g" });
+  assert.strictEqual(S.pending, 8);
+  assert.strictEqual(S.cur, 0);
+  assert.strictEqual(G.act(S, 0, { t: "play", id: 950 }).ok, false);
+  G.act(S, 0, { t: "draw" });
+  assert.strictEqual(S.players[0].hand.length, 2 + 8);
+  assert.strictEqual(S.pending, 0);
+  assert.strictEqual(S.cur, 1, "the drawer is skipped");
+  assert.strictEqual(G.act(S, 1, { t: "play", id: 952 }).ok, true, "+2 on +4 is fine again once the stack is gone (colour green)");
+});
+
+test("+2 on +4 is not allowed while a stack is open", () => {
+  const S = G.newGame(["a", "b"], 0, { stack: true });
+  S.cur = 0; S.discard = [card("r", "5", 900)]; S.color = "r";
+  S.players[0].hand = [card("w", "d4", 901), card("r", "1", 950), card("r", "2", 951)];
+  S.players[1].hand = [card("r", "d2", 902), card("r", "3", 952)];
+  G.act(S, 0, { t: "play", id: 901, color: "r" });
+  assert.strictEqual(G.act(S, 1, { t: "play", id: 902 }).ok, false);
+});
+
+test("a stacked +2 as the winning card is still drawn before scoring", () => {
+  const S = G.newGame(["a", "b"], 0, { stack: true });
+  S.cur = 0; S.discard = [card("r", "5", 900)]; S.color = "r";
+  S.players[0].hand = [card("r", "d2", 901)];
+  S.players[1].hand = [card("r", "3", 952)];
+  G.act(S, 0, { t: "play", id: 901 });
+  assert.strictEqual(S.phase, "roundEnd");
+  assert.strictEqual(S.players[1].hand.length, 3);
+});
+
 test("chaos mode doubles every action and wild card", () => {
   const d = G.buildDeck(true);
   assert.strictEqual(d.length, 140);
@@ -153,7 +196,7 @@ test("round end scores the other hands and view hides foreign cards", () => {
 
 test("random games stay consistent", () => {
   for (let g = 0; g < 300; g++) {
-    const S = G.newGame(["a", "b", "c", "d"].slice(0, 2 + (g % 3)), 0, { chaos: g % 2 === 1 });
+    const S = G.newGame(["a", "b", "c", "d"].slice(0, 2 + (g % 3)), 0, { chaos: g % 2 === 1, stack: g % 4 < 2 });
     for (let step = 0; step < 2000 && S.phase !== "roundEnd"; step++) {
       const p = S.players[S.cur];
       for (const w of S.unoWaits) if (g % 3) G.act(S, w.pi, { t: "uno" });

@@ -27,9 +27,14 @@
   --ui:"Figtree", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 *{box-sizing:border-box}
-html{height:100%;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);background:var(--bg)}
-body{height:100%;margin:0;background:var(--bg);color:var(--text);font:15px/1.4 var(--ui);
-  -webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;overscroll-behavior:none;overflow:hidden}
+/* The page itself never scrolls: iOS Safari ignores overflow:hidden on body and would
+   otherwise slide the whole page and pull its toolbar over the cards. Only inner
+   areas (start screen, hand) scroll. */
+html{height:100%;background:var(--bg);overflow:hidden;overscroll-behavior:none}
+body{position:fixed;inset:0;margin:0;overflow:hidden;overscroll-behavior:none;
+  padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);
+  background:var(--bg);color:var(--text);font:15px/1.4 var(--ui);
+  -webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-text-size-adjust:100%}
 button{font:inherit;color:inherit;touch-action:manipulation;cursor:pointer}
 button:disabled{cursor:default}
 button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
@@ -74,7 +79,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
   box-shadow:0 22px 40px rgba(0,0,0,.6)!important;will-change:transform}
 
 /* ---------- home ---------- */
-.screen{flex:1;overflow-y:auto;padding:24px 16px 32px;display:flex;flex-direction:column;gap:22px}
+.screen{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:24px 16px 32px;display:flex;flex-direction:column;gap:22px}
 .hero{display:flex;flex-direction:column;align-items:center;gap:10px;padding-top:8px}
 .fan{position:relative;height:118px;width:220px}
 .fan .card{--cw:70px;position:absolute;left:75px;top:6px;transform-origin:50% 120%}
@@ -187,7 +192,7 @@ h1 span{color:var(--accent)}
 .toggle span{display:flex;flex-direction:column;font-weight:800}
 .toggle small{font-weight:400;color:var(--muted);font-size:13px}
 .chaos-tag{font-family:var(--display);font-size:11px;letter-spacing:.06em;color:#fff;background:var(--red);padding:2px 7px;border-radius:6px}
-.hand{--cw:clamp(66px,20vw,92px);--step:calc(var(--cw) + 6px);display:flex;overflow-x:auto;overflow-y:hidden;padding:20px 4px 6px;scrollbar-width:none;min-height:calc(var(--cw)*1.5 + 26px)}
+.hand{--cw:clamp(66px,20vw,92px);--step:calc(var(--cw) + 6px);display:flex;overflow-x:auto;overflow-y:hidden;overscroll-behavior:contain;padding:20px 4px 6px;scrollbar-width:none;min-height:calc(var(--cw)*1.5 + 26px)}
 .hand::-webkit-scrollbar{display:none}
 .hand::before,.hand::after{content:"";flex:1 0 0}
 .hand .card{--cw:inherit;touch-action:pan-x}
@@ -225,7 +230,23 @@ h1 span{color:var(--accent)}
 #toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 14px);transform:translateX(-50%);z-index:60;width:max-content;max-width:calc(100% - 32px);
   background:#fff;color:#1a1426;font-weight:600;padding:12px 16px;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.4);text-align:center;transition:opacity .2s,transform .2s}
 #toast.off{opacity:0;transform:translate(-50%,-10px);pointer-events:none}
-#net{position:fixed;left:0;right:0;bottom:0;z-index:55;padding:8px 16px calc(env(safe-area-inset-bottom,0px) + 8px);background:var(--red);color:#fff;font-weight:700;font-size:13px;text-align:center}
+#net{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 8px);transform:translateX(-50%);z-index:55;display:flex;align-items:center;gap:8px;
+  padding:7px 12px;border-radius:999px;background:var(--surface);box-shadow:inset 0 0 0 1.5px var(--red),0 6px 20px rgba(0,0,0,.4);color:var(--text);font-weight:700;font-size:12px;white-space:nowrap;pointer-events:none}
+#net::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--red);animation:blink .8s steps(2) infinite}
+.lastmove{max-width:min(92%,420px);min-height:2.8em;display:flex;flex-direction:column;justify-content:flex-end;gap:2px;text-align:center;font-size:13px;font-weight:600;color:var(--text);opacity:.85;text-wrap:balance}
+.lastmove.fresh{animation:pop .35s ease-out}
+.lastmove .old{font-size:12px;color:var(--muted);font-weight:400}
+@keyframes pop{from{transform:translateY(6px);opacity:0}to{transform:none;opacity:.85}}
+.pending-tag{font-family:var(--display);font-size:12px;color:#231a05;background:var(--accent);padding:2px 8px;border-radius:6px}
+#reactBtn[hidden]{display:none}
+#reactBar{position:fixed;z-index:45;top:calc(env(safe-area-inset-top,0px) + 62px);right:16px;display:flex;gap:4px;padding:6px;border-radius:16px;background:var(--surface);box-shadow:inset 0 0 0 1.5px var(--line),0 12px 30px rgba(0,0,0,.5)}
+#reactBar button{border:0;background:transparent;font-size:28px;width:46px;height:46px;border-radius:12px;line-height:1}
+#reactBar button:active{background:var(--bg2)}
+.bubble{position:absolute;z-index:5;left:50%;top:-6px;font-size:34px;line-height:1;pointer-events:none;transform:translateX(-50%);animation:floatup 2.4s ease-out forwards;filter:drop-shadow(0 4px 6px rgba(0,0,0,.5))}
+.dock .bubble{top:-24px;font-size:40px}
+@keyframes floatup{0%{transform:translate(-50%,10px) scale(.4);opacity:0}15%{transform:translate(-50%,0) scale(1.15);opacity:1}75%{opacity:1}100%{transform:translate(-50%,-46px) scale(1);opacity:0}}
+.dock{position:relative}
+#confetti{position:fixed;inset:0;z-index:25;pointer-events:none;width:100%;height:100%}
 #unoFlash{position:fixed;inset:0;z-index:30;display:grid;place-items:center;pointer-events:none}
 #unoFlash span{font-family:var(--display);font-size:min(28vw,180px);color:var(--red);text-shadow:6px 6px 0 #1b1325;animation:boom .8s ease-out forwards;text-align:center;line-height:.9}
 #unoFlash small{display:block;font-size:.2em;color:#fff;text-shadow:2px 2px 0 #1b1325}
@@ -270,6 +291,7 @@ h1 span{color:var(--accent)}
         <button type="button" data-goal="0" aria-pressed="false">Eine Runde</button>
       </div>
       <label class="toggle" for="chaosOnline"><input type="checkbox" id="chaosOnline"><span>Chaos-Modus<small>Alle Sonderkarten doppelt im Stapel</small></span></label>
+      <label class="toggle" for="stackOnline"><input type="checkbox" id="stackOnline"><span>+2 und +4 stapeln<small>Wer eine +2 bekommt, darf eine +2 oder +4 drauflegen und weitergeben</small></span></label>
       <button class="btn" id="createBtn" type="button">Raum erstellen</button>
     </div>
     <div class="panel" id="onlineOff" hidden>
@@ -292,6 +314,7 @@ h1 span{color:var(--accent)}
         <button type="button" data-goal="0" aria-pressed="false">Eine Runde</button>
       </div>
       <label class="toggle" for="chaosLocal"><input type="checkbox" id="chaosLocal"><span>Chaos-Modus<small>Alle Sonderkarten doppelt im Stapel</small></span></label>
+      <label class="toggle" for="stackLocal"><input type="checkbox" id="stackLocal"><span>+2 und +4 stapeln<small>Wer eine +2 bekommt, darf eine +2 oder +4 drauflegen und weitergeben</small></span></label>
       <button class="btn btn-primary btn-block" id="startLocal" type="button">Neues Spiel starten</button>
     </div>
     <p class="hint">Wer eine Runde gewinnt, bekommt die Punkte aller Karten, die die anderen noch auf der Hand haben.</p>
@@ -319,6 +342,9 @@ h1 span{color:var(--accent)}
   <section id="game" hidden aria-label="Spieltisch">
     <div class="topbar">
       <div class="opps" id="opps"></div>
+      <button class="iconbtn" id="reactBtn" type="button" aria-label="Reaktion senden" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 14.5c1.8 2 5.2 2 7 0"/><path d="M9 9.5h.01M15 9.5h.01" stroke-width="3"/></svg>
+      </button>
       <button class="iconbtn" id="menuBtn" type="button" aria-label="Menü">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
       </button>
@@ -339,9 +365,11 @@ h1 span{color:var(--accent)}
           <span class="cap" id="discardCap">Ablage</span>
         </div>
       </div>
+      <div class="lastmove" id="lastMove" aria-live="polite"></div>
       <div class="tinfo">
         <span id="colorTag"><span class="dot"></span><span id="colorName"></span></span>
         <span class="chaos-tag" id="chaosTag" hidden>CHAOS</span>
+        <span class="pending-tag" id="pendingTag" hidden></span>
         <span id="dir"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v5h-5"/></svg><span id="dirText"></span></span>
       </div>
     </div>
@@ -400,11 +428,13 @@ h1 span{color:var(--accent)}
           <li>Passt nichts, zieh vom verdeckten Stapel eine Karte zu deiner Hand (oder tippe ihn an). Passt die neue Karte, darfst du sie sofort legen oder behalten. Sonst ist dein Zug vorbei.</li>
           <li><b>Aussetzen</b>: der nächste Spieler ist nicht dran. <b>Richtungswechsel</b>: die Reihenfolge dreht sich (zu zweit wirkt er wie Aussetzen). <b>+2</b>: der nächste zieht 2 und setzt aus. <b>+4</b>: du wählst die Farbe, der nächste zieht 4 und setzt aus.</li>
           <li>Legst du deine vorletzte Karte, erscheint ein großer <b>UNO!</b>-Knopf. Drück ihn innerhalb von 3 Sekunden, sonst ziehst du 2 Strafkarten.</li>
+          <li><b>Stapeln</b> (wenn eingeschaltet): Auf eine +2 darfst du eine +2 oder +4 legen, auf eine +4 nur eine +4. Wer nicht stapeln kann, zieht alle gesammelten Karten und setzt aus.</li>
           <li><b>Chaos-Modus</b>: Aussetzen, Richtungswechsel, +2, Farbwahl und +4 sind doppelt so oft im Stapel (140 statt 108 Karten).</li>
           <li>Wer zuerst keine Karten mehr hat, gewinnt die Runde. Punkte: Zahlen = Augenwert, Aussetzen/Richtungswechsel/+2 = 20, Farbwahl/+4 = 50.</li>
         </ul>
       </details>
     </div>
+    <label class="toggle" for="soundOn"><input type="checkbox" id="soundOn" checked><span>Töne und Vibration</span></label>
     <div id="menuActions"></div>
     <button class="btn btn-primary btn-block" id="menuClose" type="button">Weiterspielen</button>
   </div>
@@ -416,8 +446,14 @@ h1 span{color:var(--accent)}
   <div class="sec" id="unoSec"></div>
 </div>
 
+<div id="reactBar" hidden>
+  <button type="button" data-e="👍">👍</button><button type="button" data-e="😂">😂</button><button type="button" data-e="😱">😱</button>
+  <button type="button" data-e="😡">😡</button><button type="button" data-e="🎉">🎉</button><button type="button" data-e="🙈">🙈</button>
+</div>
+<canvas id="confetti" hidden></canvas>
+
 <div id="unoFlash" hidden><span>UNO!<small id="unoWho"></small></span></div>
-<div id="net" hidden>Verbindung zum Server unterbrochen. Verbinde neu …</div>
+<div id="net" hidden>Verbindung weg, verbinde neu …</div>
 <div id="toast" class="off" role="status" aria-live="polite"></div>
 
 <script src="game.js"></script>

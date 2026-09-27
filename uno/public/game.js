@@ -45,7 +45,14 @@
   const points = (c) => (isNum(c) ? +c.v : c.c === "w" ? 50 : 20);
   const top = (S) => S.discard[S.discard.length - 1];
 
+  // with stacking on, a pending +2 may only be answered with +2 or +4, a pending +4 only with +4
+  function canStack(S, c) {
+    if (!S.pending) return true;
+    return top(S).v === "d2" ? c.v === "d2" || c.v === "d4" : c.v === "d4";
+  }
+
   function canPlay(S, c) {
+    if (!canStack(S, c)) return false;
     if (c.c === "w") return true;
     return c.c === S.color || c.v === top(S).v;
   }
@@ -80,7 +87,7 @@
     const S = {
       players: names.map((name) => ({ name, hand: [], score: 0 })),
       deck: [], discard: [], cur: 0, dir: 1, color: "r",
-      phase: "play", drawnId: null, unoWaits: [], chaos: !!(opts && opts.chaos),
+      phase: "play", drawnId: null, unoWaits: [], chaos: !!(opts && opts.chaos), stack: !!(opts && opts.stack), pending: 0,
       goal: goal || 0, round: 0, turn: 0,
       starter: Math.floor(Math.random() * names.length),
       log: [], last: null
@@ -93,6 +100,7 @@
     S.round++;
     S.deck = buildDeck(S.chaos);
     S.unoWaits = [];
+    S.pending = 0;
     S.discard = [];
     S.dir = 1;
     S.log = [];
@@ -120,6 +128,12 @@
   }
 
   function endRound(S, wi) {
+    if (S.pending) { // a stacked +2/+4 as the last card still has to be drawn
+      const v = nextIdx(S, wi);
+      draw(S, v, S.pending);
+      log(S, `${S.players[v].name} zieht noch ${S.pending} Karten.`);
+      S.pending = 0;
+    }
     let pts = 0;
     S.players.forEach((p, i) => { if (i !== wi) p.hand.forEach((c) => { pts += points(c); }); });
     S.players[wi].score += pts;
@@ -183,6 +197,7 @@
     if (a.t === "skip") { // host moves on when the current player is away
       if (S.phase !== "play" && S.phase !== "drawn") return fail("Gerade ist niemand dran.");
       log(S, `${S.players[S.cur].name} wird übersprungen.`);
+      if (S.pending) { draw(S, S.cur, S.pending); S.pending = 0; }
       beginTurn(S, nextIdx(S, S.cur));
       return { ok: true, events };
     }
@@ -193,6 +208,15 @@
 
     if (a.t === "draw") {
       if (S.phase !== "play") return fail("Du hast schon gezogen.");
+      if (S.pending) {
+        const n = S.pending;
+        S.pending = 0;
+        draw(S, pi, n);
+        log(S, `${p.name} zieht ${n} Karten und setzt aus.`);
+        events.push({ t: "took", pi, n });
+        beginTurn(S, nextIdx(S, pi));
+        return { ok: true, events };
+      }
       const got = draw(S, pi, 1);
       if (!got.length) {
         log(S, `${p.name} kann nicht ziehen, der Stapel ist leer.`);
@@ -226,6 +250,7 @@
       if (S.phase === "drawn" && c.id !== S.drawnId) return fail("Nach dem Ziehen darfst du nur die gezogene Karte legen.");
       if (!canPlay(S, c)) {
         const t = top(S);
+        if (S.pending) return fail(`Leg eine ${t.v === "d2" ? "+2 oder +4" : "+4"} drauf oder zieh ${S.pending} Karten.`);
         return fail(`Passt nicht. Gesucht: ${CNAME[S.color]} oder ${t.c === "w" ? "eine Farbwahl-Karte" : VNAME[t.v] || t.v}.`);
       }
       if (c.c === "w" && !COLORS.includes(a.color)) return fail("Bitte eine Farbe wählen.");
@@ -257,9 +282,14 @@
       }
       if (c.v === "d2" || c.v === "d4") {
         const v = nextIdx(S, pi), k = c.v === "d2" ? 2 : 4;
-        draw(S, v, k);
-        steps = 2;
-        log(S, `${S.players[v].name} zieht ${k} Karten und setzt aus.`);
+        if (S.stack) {
+          S.pending += k;
+          log(S, `${S.players[v].name} muss ${S.pending} Karten ziehen oder stapeln.`);
+        } else {
+          draw(S, v, k);
+          steps = 2;
+          log(S, `${S.players[v].name} zieht ${k} Karten und setzt aus.`);
+        }
       }
 
       if (p.hand.length === 0) { endRound(S, pi); return { ok: true, events }; }
@@ -283,7 +313,7 @@
       next: nextIdx(S, S.cur),
       phase: S.phase, drawnId: pi === S.cur ? S.drawnId : null,
       unoWaits: (S.unoWaits || []).map((w) => ({ pi: w.pi, id: w.id, ms: Math.max(0, w.until - Date.now()) })),
-      chaos: !!S.chaos,
+      chaos: !!S.chaos, stack: !!S.stack, pending: S.pending || 0,
       deckCount: S.deck.length,
       round: S.round, goal: S.goal, turn: S.turn,
       log: S.log.slice(-6), last: S.last
