@@ -22,7 +22,14 @@ Online gibt es **Emoji-Reaktionen**, dazu Töne, Vibration und Konfetti für den
 
 **Hausregeln** (Host im Warteraum, bzw. beim Spiel mit einem Handy aufklappbar):
 +2 und +4 stapeln · Nach +2/+4 aussetzen · Ziehen, bis es passt · 7 tauscht, 0 dreht ·
-Reinwerfen (nur online) · Chaos-Modus.
+Reinwerfen (nur online) · Chaos-Modus · Zugzeit 30 Sekunden (nur online).
+
+**Computer-Gegner**: online fügt der Host sie im Warteraum hinzu, beim Spiel mit einem
+Handy wird jeder Platz per 🤖 zum Computer (auch allein gegen den Computer spielbar).
+Fällt online jemand aus, kann der Host den Computer für ihn spielen lassen; kommt er
+zurück, bekommt er seinen Platz wieder. Außerdem: **Tipp**-Knopf, Hand nach Farbe oder
+Zahl sortieren, Runde aufgeben, Tastenkürzel am Computer (D ziehen, U UNO, H Tipp,
+S sortieren, Esc schließen).
 
 ## Auf dem HP Mini installieren
 

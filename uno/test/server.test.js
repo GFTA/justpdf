@@ -26,6 +26,9 @@ function client(port) {
   return { ws, next, send: (m) => ws.send(JSON.stringify(m)), open: new Promise((r) => ws.on("open", r)) };
 }
 
+// open sockets would keep the process alive after a failed assertion
+test.after(() => { server.close(); setImmediate(() => process.exit()); });
+
 test("create, join, start and play over WebSockets", async () => {
   await new Promise((r) => server.listening ? r() : server.on("listening", r));
   const port = server.address().port;
@@ -52,7 +55,7 @@ test("create, join, start and play over WebSockets", async () => {
   b.send({ t: "rules", rules: { stack: true } }); // not the host: ignored
   a.send({ t: "rules", rules: { chaos: true, stack: true } });
   const ruled = await b.next((m) => m.t === "room" && m.rules.stack);
-  assert.deepStrictEqual(ruled.rules, { stack: true, skipAfterDraw: false, drawUntil: false, sevenZero: false, jumpIn: false, chaos: true });
+  assert.deepStrictEqual(ruled.rules, { stack: true, skipAfterDraw: false, drawUntil: false, sevenZero: false, jumpIn: false, chaos: true, turnTimer: false });
 
   b.send({ t: "start" });
   assert.match((await b.next((m) => m.t === "error")).msg, /Nur/);
@@ -80,6 +83,9 @@ test("create, join, start and play over WebSockets", async () => {
   const r = await a.next((m) => m.t === "react");
   assert.deepStrictEqual([r.pi, r.e], [1, "🎉"]);
 
+  // a client may not fake the server's clock
+  a.send({ t: "act", a: { t: "timeout" } });
+
   // reconnect with the stored secret
   a.ws.close();
   const a2 = client(port); await a2.open;
@@ -89,5 +95,24 @@ test("create, join, start and play over WebSockets", async () => {
   assert.strictEqual(back.view.players[cur].count, 8);
 
   a2.ws.close(); b.ws.close();
+
+  // a room with computer players plays on by itself
+  const h = client(port); await h.open;
+  h.send({ t: "create", name: "Host", goal: 0 });
+  await h.next((m) => m.t === "joined");
+  h.send({ t: "addBot" }); h.send({ t: "addBot" });
+  const lobby2 = await h.next((m) => m.t === "room" && m.members.length === 3);
+  assert.deepStrictEqual(lobby2.members.map((m) => m.bot), [false, true, true]);
+  h.send({ t: "start" });
+  let turnsByBots = 0;
+  for (let k = 0; k < 40 && turnsByBots < 3; k++) {
+    const m = await new Promise((res) => { const t = setInterval(async () => { clearInterval(t); res(await h.next((x) => x.t === "room" && x.view)); }, 10); });
+    if (m.events.some((e) => e.t === "played" || e.t === "drew")) turnsByBots += m.events.filter((e) => e.pi !== 0).length ? 1 : 0;
+    if (m.view.cur === 0 && m.view.phase === "play") h.send({ t: "act", a: { t: "draw" } });
+    if (m.view.cur === 0 && m.view.phase === "drawn") h.send({ t: "act", a: { t: "keep" } });
+    if ((m.view.unoWaits || []).some((w) => w.pi === 0)) h.send({ t: "act", a: { t: "uno" } });
+  }
+  assert.ok(turnsByBots >= 3, "bots took their turns");
+  h.ws.close();
   server.close();
 });

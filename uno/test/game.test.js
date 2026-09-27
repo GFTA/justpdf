@@ -234,6 +234,33 @@ test("giving up: skipped for the round, last one standing wins", () => {
   assert.ok(S.players.every((p) => !p.out), "back in next round");
 });
 
+test("computer player plays whole games on its own", () => {
+  for (let g = 0; g < 60; g++) {
+    const S = G.newGame(["a", "b", "c"], 0, { stack: g % 2 === 0, sevenZero: g % 3 === 0, drawUntil: g % 5 === 0 });
+    let steps = 0;
+    while (S.phase !== "roundEnd" && steps++ < 3000) {
+      const w = S.unoWaits[0];
+      const pi = w ? w.pi : S.cur;
+      const a = G.suggest(G.view(S, pi));
+      assert.ok(a, "always has a move");
+      const res = G.act(S, pi, a);
+      assert.ok(res.ok, `${JSON.stringify(a)} -> ${res.error}`);
+      assert.strictEqual(total(S), size(S));
+    }
+    assert.strictEqual(S.phase, "roundEnd", "the bots finish the round");
+  }
+});
+
+test("timeout draws a card and passes the turn", () => {
+  const S = G.newGame(["a", "b", "c"], 0, { turnTimer: true });
+  const cur = S.cur, n = S.players[cur].hand.length;
+  const res = G.act(S, cur, { t: "timeout" });
+  assert.ok(res.ok);
+  assert.strictEqual(S.players[cur].hand.length, n + 1);
+  assert.notStrictEqual(S.cur, cur);
+  assert.strictEqual(G.act(S, cur, { t: "timeout" }).ok, false, "only for the player on turn");
+});
+
 test("chaos mode doubles every action and wild card", () => {
   const d = G.buildDeck(true);
   assert.strictEqual(d.length, 140);

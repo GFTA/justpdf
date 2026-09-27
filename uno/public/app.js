@@ -39,6 +39,7 @@
   let tab = webHost ? "online" : "local", tabTouched = false;
   let goalLocal = 500, goalOnline = 500;
   let names = store.get(K.names) || ["", "", ""];
+  let localBots = store.get("passuno.bots") || [];
   let lastTurn = null;
 
   // ---------- helpers ----------
@@ -60,8 +61,11 @@
     if (V.pending) return `Leg eine ${V.top.v === "d2" ? "+2 oder +4" : "+4"} drauf oder zieh ${V.pending} Karten vom Stapel.`;
     return `Passt nicht. Gesucht: ${G.CNAME[V.color]} oder ${V.top.c === "w" ? "eine Farbwahl-Karte" : G.VNAME[V.top.v] || V.top.v}.`;
   }
+  let sortMode = store.get("passuno.sort") === "value" ? "value" : "color";
+  const byColor = (a, b) => "rygbw".indexOf(a.c) - "rygbw".indexOf(b.c);
+  const byValue = (a, b) => ORDER.indexOf(a.v) - ORDER.indexOf(b.v);
   const sortHand = (h) => [...h].sort((a, b) =>
-    "rygbw".indexOf(a.c) - "rygbw".indexOf(b.c) || ORDER.indexOf(a.v) - ORDER.indexOf(b.v) || a.id - b.id);
+    (sortMode === "value" ? byValue(a, b) || byColor(a, b) : byColor(a, b) || byValue(a, b)) || a.id - b.id);
 
   function cardHTML(c, extra = "", tag = "span") {
     let mid, corner;
@@ -130,6 +134,7 @@
     if (ev.t === "swap") toast(`${who(ev.pi)} tauscht die Hand mit ${ev.with === me ? "dir" : players[ev.with].name}!`);
     if (ev.t === "rotate") toast("Alle Hände wandern eins weiter!");
     if (ev.t === "jump") { toast(`${who(ev.pi)} wirft rein!`); sfx("uno"); }
+    if (ev.t === "timeout") toast(ev.pi === me ? "Zeit abgelaufen: du hast eine Karte gezogen." : `${players[ev.pi].name}: Zeit abgelaufen.`);
     if (ev.t === "surrender") toast(ev.pi === me ? "Du hast diese Runde aufgegeben." : `${players[ev.pi].name} gibt diese Runde auf.`);
   }
   function localEvents(events, turnBefore) {
@@ -139,7 +144,7 @@
       ruleEvent(ev, L.players, -1);
       if (ev.t === "uno") { flashUno(L.players[ev.pi].name); sfx("uno"); }
       if (ev.t === "penalty") { toast(`${L.players[ev.pi].name} war zu langsam: 2 Strafkarten!`); sfx("bad"); }
-      if (ev.t === "drew" && L.turn !== turnBefore) {
+      if (ev.t === "drew" && L.turn !== turnBefore && !isBot(ev.pi)) {
         const c = L.players[ev.pi].hand.find((x) => x.id === ev.id);
         if (c) toast(`Gezogen: ${G.cardName(c)}. Passt nicht, dein Zug ist vorbei.`);
       }
@@ -172,18 +177,48 @@
     });
   }
   let hold = null, holdT = null; // keep showing the drawer's hand while their card flies in
+  // With computer players on a shared phone, the hand on screen belongs to the last human
+  // who looked; bots play without a hand-off, and two humans in a row still get one.
+  let viewer = null;
+  const isBot = (i) => !!(L && L.players[i] && L.players[i].bot);
+  const firstHuman = () => L.players.findIndex((p) => !p.bot);
+  function localViewer() {
+    if (hold != null) return hold;
+    if (!isBot(L.cur)) return L.cur;
+    return viewer != null && !isBot(viewer) ? viewer : firstHuman();
+  }
+  function afterTurnChange() {
+    if (isBot(L.cur)) hidden = false;
+    else hidden = L.cur !== viewer;
+  }
+  let localBotT = null, localBotKey = null;
+  function scheduleLocalBot() {
+    if (mode !== "local" || !L || (L.phase !== "play" && L.phase !== "drawn")) { clearTimeout(localBotT); localBotKey = null; return; }
+    const w = (L.unoWaits || []).find((x) => isBot(x.pi));
+    const pi = w ? w.pi : isBot(L.cur) ? L.cur : -1;
+    const key = pi < 0 ? null : `${L.round}:${L.turn}:${L.phase}:${pi}:${!!w}`;
+    if (key === localBotKey) return;
+    clearTimeout(localBotT); localBotKey = key;
+    if (pi < 0) return;
+    localBotT = setTimeout(() => {
+      localBotKey = null;
+      if (mode !== "local" || !L) return;
+      const a = G.suggest(G.view(L, pi));
+      if (a && !doAct(a, pi) && a.t === "play") doAct({ t: L.phase === "drawn" ? "keep" : "draw" }, pi);
+    }, (w ? 500 : 900) + Math.random() * 700);
+  }
   function doAct(a, actor) {
     if (mode === "local") {
       const before = L.turn, who = actor == null ? L.cur : actor, snap = snapshot();
       const res = G.act(L, who, a);
       localEvents(res.events, before);
       trackIncoming(snap, res.events);
-      if (!res.ok) { toast(res.error); store.set(K.local, L); render(); return false; }
+      if (!res.ok) { if (!isBot(who)) toast(res.error); store.set(K.local, L); render(); return false; }
       sel = null;
       if (L.phase !== "roundEnd" && L.turn !== before) {
-        hidden = true;
+        afterTurnChange();
         // drew a card that does not fit: let them watch it arrive before passing the phone
-        if ((res.events || []).some((e) => e.t === "drew" && e.pi === who) && incoming[who]) {
+        if (hidden && (res.events || []).some((e) => e.t === "drew" && e.pi === who) && incoming[who]) {
           hold = who; clearTimeout(holdT);
           holdT = setTimeout(() => { hold = null; render(); }, 450 + 110 * (incoming[who].length - 1) + 700);
         }
@@ -346,6 +381,8 @@
     const k = e.key.toLowerCase();
     if (k === "u" && !$("#unoCall").hidden) { $("#unoBig").click(); e.preventDefault(); }
     else if (k === "d" && $("#handoff").hidden) { tryDraw(); e.preventDefault(); }
+    else if (k === "h") showHint();
+    else if (k === "s") toggleSort();
   });
   // keyboard users: Enter/Space on a card or the pile
   $("#hand").addEventListener("click", (e) => { const b = e.target.closest("[data-id]"); if (b && e.detail === 0) tapCard(+b.dataset.id); });
@@ -361,11 +398,12 @@
     renderUnoCall();
     if (drag) { renderPending = true; return; }
     if (mode === "local" && L) {
-      V = G.view(L, hold != null ? hold : L.cur);
+      V = G.view(L, localViewer());
       showScreen("game");
       renderGame();
-      $("#handoff").hidden = !(hidden && hold == null && L.phase !== "roundEnd");
+      $("#handoff").hidden = !(hidden && hold == null && !isBot(L.cur) && L.phase !== "roundEnd");
       if (!$("#handoff").hidden) renderHandoff();
+      scheduleLocalBot();
     } else if (mode === "online" && R) {
       $("#handoff").hidden = true;
       if (!R.view) { V = null; showScreen("lobby"); renderLobby(); $("#roundEnd").hidden = true; }
@@ -409,7 +447,7 @@
       html[slot] += `<div class="${cls}" data-seat="${i}" title="${esc(p.name)}: ${cnt} Karten${away ? " (offline)" : ""}" ` +
         `style="--step:${step.toFixed(1)}px;--lw:${vertical ? (big ? 110 : 76) : Math.round(room)}px">${badge}` +
         `<div class="sfan">${"<i></i>".repeat(Math.min(cnt, 60))}</div>` +
-        `<div class="slabel"><span class="sname">${esc(p.name)}</span><span class="scount">${cnt}</span></div></div>`;
+        `<div class="slabel"><span class="sname">${p.bot ? "🤖 " : ""}${esc(p.name)}</span><span class="scount">${cnt}</span></div></div>`;
     }
     for (const sl of Object.keys(html)) { const el = tbl.querySelector(".s-" + sl); if (el.innerHTML !== html[sl]) el.innerHTML = html[sl]; }
   }
@@ -451,6 +489,9 @@
     $("#whoName").textContent = who;
     $("#whoHint").textContent = hint;
     $("#keepBtn").hidden = !(mine && V.phase === "drawn");
+    $("#hintBtn").hidden = !mine;
+    $("#sortBtn").textContent = sortMode === "value" ? "⇅ Zahl" : "⇅ Farbe";
+    renderClock();
     $("#chaosTag").hidden = !rules().chaos;
     $("#pendingTag").hidden = !V.pending;
     $("#pendingTag").textContent = `+${V.pending} offen`;
@@ -567,8 +608,9 @@
   let unoKey = null, unoEnd = 0, unoTimer = null;
   function myUnoWait() {
     if (mode === "local" && L) {
-      const w = (L.unoWaits || [])[0];
-      return w ? { pi: w.pi, ms: w.until - Date.now(), key: `${w.pi}:${w.until}`, name: L.players[w.pi].name } : null;
+      const w = (L.unoWaits || []).find((x) => !isBot(x.pi));
+      const solo = L.players.filter((p) => !p.bot).length === 1;
+      return w ? { pi: w.pi, ms: w.until - Date.now(), key: `${w.pi}:${w.until}`, name: solo ? "" : L.players[w.pi].name } : null;
     }
     const v = mode === "online" && R && R.view;
     if (v && v.unoWaits) {
@@ -602,6 +644,22 @@
     if (mode === "local") doAct({ t: "uno" }, pi);
     else if (!wsSend({ t: "act", a: { t: "uno" } })) toast("Keine Verbindung zum Server.");
   });
+
+  // turn clock (house rule, online): a bar that runs down for whoever is on turn
+  let clockKey = null;
+  function renderClock() {
+    const bar = $("#turnBar"), left = mode === "online" && R ? R.turnLeft : 0;
+    if (!left || !V || (V.phase !== "play" && V.phase !== "drawn")) { bar.hidden = true; clockKey = null; return; }
+    const key = `${V.round}:${V.turn}`;
+    if (clockKey === key) return;
+    clockKey = key; bar.hidden = false;
+    const i = bar.firstElementChild, total = G.TURN_MS;
+    bar.classList.remove("low");
+    i.getAnimations().forEach((a) => a.cancel());
+    i.animate([{ transform: `scaleX(${left / total})` }, { transform: "scaleX(0)" }], { duration: left, easing: "linear", fill: "forwards" });
+    clearTimeout(renderClock.t);
+    renderClock.t = setTimeout(() => { if (clockKey === key) { bar.classList.add("low"); if (myTurn()) { toast("Noch 10 Sekunden!"); buzz(80); } } }, Math.max(0, left - 10000));
+  }
 
   let prevHand = null, drawFx = false;
   function flyIn(ids) {
@@ -699,7 +757,8 @@
     if (!list.contains(document.activeElement)) {
       list.innerHTML = names.map((n, i) =>
         `<div class="prow"><span class="seat">${i + 1}</span>` +
-        `<input class="field" id="pname-${i}" data-i="${i}" maxlength="18" autocomplete="off" enterkeyhint="next" placeholder="Spieler ${i + 1}" value="${esc(n)}">` +
+        `<input class="field" id="pname-${i}" data-i="${i}" maxlength="18" autocomplete="off" enterkeyhint="next" placeholder="${localBots[i] ? "Computer" : "Spieler"} ${i + 1}" value="${esc(n)}">` +
+        `<button class="botbtn" type="button" data-bot="${i}" aria-pressed="${!!localBots[i]}" title="Computer spielt diesen Platz" aria-label="Platz ${i + 1} vom Computer spielen lassen">🤖</button>` +
         (names.length > 2 ? `<button class="rm" type="button" data-rm="${i}" aria-label="Spieler ${i + 1} entfernen">×</button>` : "") +
         `</div>`).join("");
     }
@@ -724,10 +783,12 @@
     $("#joinHint").textContent = "Die anderen scannen den QR-Code oder öffnen den Link und geben den Code ein." + (lan ? " Alle müssen im selben WLAN sein." : "");
     const on = R.members.filter((m) => m.online).length;
     $("#membersLabel").textContent = `Spieler (${R.members.length}/10)`;
-    $("#members").innerHTML = R.members.map((m, i) =>
-      `<li class="${i === R.you ? "me" : ""}"><span class="on${m.online ? "" : " off"}"></span><span class="nm">${esc(m.name)}</span>` +
-      `${i === R.host ? '<span class="tag">Host</span>' : ""}${i === R.you ? '<span class="tag">du</span>' : ""}</li>`).join("");
     const host = R.you === R.host;
+    $("#members").innerHTML = R.members.map((m, i) =>
+      `<li class="${i === R.you ? "me" : ""}"><span class="on${m.online ? "" : " off"}"></span><span class="nm">${m.bot ? "🤖 " : ""}${esc(m.name)}</span>` +
+      `${m.bot ? '<span class="tag">Computer</span>' : ""}${i === R.host ? '<span class="tag">Host</span>' : ""}${i === R.you ? '<span class="tag">du</span>' : ""}` +
+      `${m.bot && host ? `<button class="rmbot" type="button" data-rmbot="${i}" aria-label="${esc(m.name)} entfernen">×</button>` : ""}</li>`).join("");
+    $("#addBot").hidden = !host || R.members.length >= 10;
     $("#startOnline").hidden = !host;
     $("#startOnline").disabled = R.members.length < 2;
     $("#startOnline").textContent = R.members.length < 2 ? "Warte auf Mitspieler …" : `Spiel starten (${R.members.length} Spieler)`;
@@ -876,7 +937,12 @@
   });
 
   $("#plist").addEventListener("input", (e) => { if (e.target.dataset.i != null) { names[+e.target.dataset.i] = e.target.value; store.set(K.names, names); } });
-  $("#plist").addEventListener("click", (e) => { const b = e.target.closest("[data-rm]"); if (b) { names.splice(+b.dataset.rm, 1); store.set(K.names, names); renderHome(); } });
+  $("#plist").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-rm]");
+    if (b) { names.splice(+b.dataset.rm, 1); localBots.splice(+b.dataset.rm, 1); store.set(K.names, names); store.set("passuno.bots", localBots); renderHome(); }
+    const t = e.target.closest("[data-bot]");
+    if (t) { const i = +t.dataset.bot; localBots[i] = !localBots[i]; store.set("passuno.bots", localBots); renderHome(); }
+  });
   $("#plist").addEventListener("keydown", (e) => {
     if (e.key !== "Enter") return;
     const nx = document.getElementById(`pname-${+e.target.dataset.i + 1}`);
@@ -888,15 +954,23 @@
     const el = document.getElementById(`pname-${names.length - 1}`); if (el) el.focus();
   });
   $("#startLocal").addEventListener("click", () => {
-    L = G.newGame(names.map((n, i) => n.trim() || `Spieler ${i + 1}`), goalLocal, Object.assign({}, localRules, { jumpIn: false }));
-    mode = "local"; hidden = true; store.set(K.local, L); render(); wake();
+    if (names.every((_, i) => localBots[i])) { toast("Mindestens ein Mensch muss mitspielen."); return; }
+    L = G.newGame(names.map((n, i) => n.trim() || (localBots[i] ? `Computer ${i + 1}` : `Spieler ${i + 1}`)), goalLocal, Object.assign({}, localRules, { jumpIn: false, turnTimer: false }));
+    L.players.forEach((p, i) => { p.bot = !!localBots[i]; });
+    mode = "local"; viewer = null; hidden = true;
+    if (isBot(L.cur)) { viewer = firstHuman(); hidden = false; }
+    store.set(K.local, L); render(); wake();
   });
   $("#resumeBtn").addEventListener("click", () => {
     L = store.get(K.local); if (!L) return render();
-    mode = "local"; hidden = true; render(); wake(); scheduleLocalUno();
+    mode = "local"; viewer = null; hidden = !isBot(L.cur);
+    if (!hidden) viewer = firstHuman();
+    render(); wake(); scheduleLocalUno();
   });
 
   $("#startOnline").addEventListener("click", () => wsSend({ t: "start" }));
+  $("#addBot").addEventListener("click", () => wsSend({ t: "addBot" }));
+  $("#members").addEventListener("click", (e) => { const b = e.target.closest("[data-rmbot]"); if (b) wsSend({ t: "removeBot", seat: +b.dataset.rmbot }); });
   $("#leaveLobby").addEventListener("click", () => wsSend({ t: "leave" }));
   $("#copyBtn").addEventListener("click", () => {
     const url = $("#joinUrl").textContent;
@@ -905,8 +979,22 @@
     try { navigator.clipboard.writeText(url).then(ok, fallback); } catch (e) { fallback(); }
   });
 
-  $("#hoBtn").addEventListener("click", () => { hidden = false; render(); });
+  $("#hoBtn").addEventListener("click", () => { hidden = false; viewer = L.cur; render(); });
   $("#keepBtn").addEventListener("click", () => doAct({ t: "keep" }));
+  function showHint() {
+    if (!myTurn()) return;
+    const a = G.suggest(V);
+    if (!a || a.t === "uno") return;
+    if (a.t === "draw") { toast(V.pending ? `Tipp: zieh die ${V.pending} Karten.` : "Tipp: Nichts passt, zieh eine Karte vom Stapel."); return; }
+    if (a.t === "keep") { toast("Tipp: Behalte die Karte."); return; }
+    const c = V.hand.find((x) => x.id === a.id);
+    const el = document.querySelector(`#hand [data-id="${a.id}"]`);
+    if (el) { el.classList.remove("hint"); void el.offsetWidth; el.classList.add("hint"); el.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" }); }
+    toast(`Tipp: ${G.cardName(c)}${a.color ? `, dann ${G.CNAME[a.color]} wünschen` : ""}.`);
+  }
+  function toggleSort() { sortMode = sortMode === "value" ? "color" : "value"; store.set("passuno.sort", sortMode); renderGame(); }
+  $("#hintBtn").addEventListener("click", showHint);
+  $("#sortBtn").addEventListener("click", toggleSort);
   $("#picker").addEventListener("click", (e) => {
     const b = e.target.closest("[data-color]"); if (!b) return;
     $("#picker").hidden = true;
@@ -940,7 +1028,7 @@
     const box = $("#menuActions"); box.innerHTML = "";
     if (mode === "local") {
       box.append(
-        armed(`${L.players[L.cur].name}: Runde aufgeben`, () => doAct({ t: "surrender" })),
+        armed(`${L.players[localViewer()].name}: Runde aufgeben`, () => doAct({ t: "surrender" }, localViewer())),
         armed("Runde neu mischen", () => { L.round--; G.startRound(L); hidden = true; store.set(K.local, L); render(); scheduleLocalUno(); }),
         armed("Spiel beenden", () => { store.del(K.local); L = null; mode = null; render(); })
       );
@@ -949,6 +1037,9 @@
         box.append(armed(`${V.players[V.cur].name} überspringen`, () => wsSend({ t: "act", a: { t: "skip" } })));
       if (V && V.phase !== "roundEnd" && !(V.players[V.me] || {}).out)
         box.append(armed("Runde aufgeben", () => wsSend({ t: "act", a: { t: "surrender" } })));
+      if (R.you === R.host && V) R.members.forEach((m, i) => {
+        if (!m.bot && !m.online) box.append(armed(`🤖 Computer spielt für ${m.name}`, () => wsSend({ t: "standIn", seat: i })));
+      });
       if (R.you === R.host) box.append(armed("Spiel beenden, zurück in den Warteraum", () => wsSend({ t: "end" })));
       box.append(armed("Raum verlassen", () => wsSend({ t: "leave" })));
     }

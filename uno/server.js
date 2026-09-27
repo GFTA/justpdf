@@ -10,7 +10,7 @@ const crypto = require("crypto");
 const { WebSocketServer } = require("ws");
 const Uno = require("./public/game.js");
 
-const PORT = +process.env.PORT || 8080;
+const PORT = process.env.PORT ? +process.env.PORT : 8080; // "0" = any free port (tests)
 const HOST = process.env.HOST || "0.0.0.0";
 const PUBLIC = path.join(__dirname, "public");
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
@@ -53,6 +53,7 @@ function loadRooms() {
   try {
     const list = JSON.parse(fs.readFileSync(SAVE_FILE, "utf8"));
     for (const r of list) if (Date.now() - r.touched < ROOM_TTL) { rooms.set(r.code, r); scheduleUno(r); }
+    for (const r of rooms.values()) schedule(r); // bots carry on after a restart
     console.log(`${rooms.size} Räume aus ${SAVE_FILE} geladen`);
   } catch (e) { /* first start */ }
 }
@@ -86,13 +87,72 @@ function online(code) {
   return on;
 }
 
+// ---------- computer players and the turn clock ----------
+const BOT_NAMES = ["Robo", "Pixel", "Byte", "Turbo", "Nova", "Blitz", "Chip", "Zappy", "Kiwi", "Rocket"];
+const botTimers = new Map();  // code -> { key, t }
+const turnTimers = new Map(); // code -> { key, t, ends }
+
+function clearTimer(map, code) { const x = map.get(code); if (x) clearTimeout(x.t); map.delete(code); }
+
+// Runs after every change: lets a bot move when it is its turn (or call UNO), and
+// starts the 30 s clock for humans when that house rule is on.
+function schedule(room) {
+  const S = room.state, code = room.code;
+  if (!S || S.phase === "roundEnd" || !rooms.has(code)) { clearTimer(botTimers, code); clearTimer(turnTimers, code); return; }
+  const botWait = (S.unoWaits || []).find((w) => S.players[w.pi].bot);
+  const cur = S.players[S.cur];
+  let key = null, delay = 0, pi = -1;
+  if (botWait) { key = `uno:${S.round}:${S.turn}:${botWait.pi}`; delay = 500 + Math.random() * 900; pi = botWait.pi; }
+  else if (cur.bot) { key = `bot:${S.round}:${S.turn}:${S.phase}`; delay = 900 + Math.random() * 900; pi = S.cur; }
+  const old = botTimers.get(code);
+  if (!old || old.key !== key) {
+    clearTimer(botTimers, code);
+    if (key) botTimers.set(code, { key, t: setTimeout(() => { botTimers.delete(code); botMove(room, pi); }, delay) });
+  }
+  const tkey = `${S.round}:${S.turn}`;
+  if (roomRules(room).turnTimer && !cur.bot && (S.phase === "play" || S.phase === "drawn")) {
+    const t = turnTimers.get(code);
+    if (!t || t.key !== tkey) {
+      clearTimer(turnTimers, code);
+      turnTimers.set(code, { key: tkey, ends: Date.now() + Uno.TURN_MS, t: setTimeout(() => {
+        turnTimers.delete(code);
+        if (room.state === S && `${S.round}:${S.turn}` === tkey) apply(room, S.cur, { t: "timeout" });
+      }, Uno.TURN_MS) });
+    }
+  } else clearTimer(turnTimers, code);
+}
+
+function botMove(room, pi) {
+  const S = room.state;
+  if (!S || !rooms.has(room.code)) return;
+  const a = Uno.suggest(Uno.view(S, pi));
+  if (!a) return schedule(room);
+  if (!apply(room, pi, a) && a.t === "play") apply(room, pi, { t: S.phase === "drawn" ? "keep" : "draw" });
+}
+
+// apply an action for player pi and tell everybody; returns false if it was not allowed
+function apply(room, pi, a) {
+  const expired = Uno.tick(room.state);
+  const res = Uno.act(room.state, pi, a);
+  room.touched = Date.now();
+  if (!res.ok) { if (expired.length) broadcast(room, expired); return false; }
+  broadcast(room, expired.concat(res.events || []));
+  saveRooms(); scheduleUno(room);
+  return true;
+}
+
 function broadcast(room, events) {
   const on = online(room.code);
-  const members = room.members.map((m, i) => ({ name: m.name, online: on.has(i) }));
+  // the host went away: the next person who is still here takes over
+  if (!on.has(room.host)) { const h = room.members.findIndex((m, i) => !m.bot && on.has(i)); if (h >= 0) room.host = h; }
+  schedule(room);
+  const clock = turnTimers.get(room.code);
+  const members = room.members.map((m, i) => ({ name: m.name, online: !!m.bot || on.has(i), bot: !!m.bot }));
   for (const ws of sockets.get(room.code) || []) {
     if (ws.pid == null) continue;
     send(ws, {
       t: "room", code: room.code, you: ws.pid, host: room.host, goal: room.goal, rules: roomRules(room), members,
+      turnLeft: clock ? Math.max(0, clock.ends - Date.now()) : 0,
       view: room.state ? Uno.view(room.state, ws.pid) : null, events: events || []
     });
   }
@@ -106,6 +166,11 @@ function attach(ws, room, pid) {
   if (!sockets.has(room.code)) sockets.set(room.code, new Set());
   sockets.get(room.code).add(ws);
   room.touched = Date.now();
+  const m = room.members[pid];
+  if (m.bot && m.standIn) { // back from a break: the computer hands the seat back
+    m.bot = false; delete m.standIn;
+    if (room.state) room.state.players[pid].bot = false;
+  }
   send(ws, { t: "joined", code: room.code, pid, secret: room.members[pid].secret });
 }
 function detach(ws) {
@@ -138,7 +203,7 @@ function handle(ws, msg) {
       const name = cleanName(msg.name);
       if (!r) return err("Diesen Raum gibt es nicht. Prüf den Code.");
       if (!name) return err("Bitte gib deinen Namen ein.");
-      const same = r.members.findIndex((m) => m.name.toLowerCase() === name.toLowerCase());
+      const same = r.members.findIndex((m) => m.name.toLowerCase() === name.toLowerCase() && (!m.bot || m.standIn));
       if (same >= 0) {
         // same name: only allowed to take the seat back when that player is offline
         if (online(r.code).has(same)) return err(`Der Name „${name}“ ist schon vergeben.`);
@@ -180,6 +245,7 @@ function handle(ws, msg) {
       if (room.state) return;
       if (room.members.length < 2) return err("Es braucht mindestens 2 Spieler.");
       room.state = Uno.newGame(room.members.map((m) => m.name), room.goal, roomRules(room));
+      room.members.forEach((m, i) => { room.state.players[i].bot = !!m.bot; });
       broadcast(room); saveRooms();
       return;
     }
@@ -187,6 +253,7 @@ function handle(ws, msg) {
       if (!room || !room.state) return;
       const a = msg.a || {};
       if (a.t === "skip" && ws.pid !== room.host) return err("Nur der Host kann Spieler überspringen.");
+      if (a.t === "timeout") return; // only the server's clock may do that
       const expired = Uno.tick(room.state); // resolve run-out UNO windows first
       const res = Uno.act(room.state, ws.pid, a);
       room.touched = Date.now();
@@ -211,6 +278,33 @@ function handle(ws, msg) {
       if (now - (ws.lastReact || 0) < 1000) return;
       ws.lastReact = now;
       for (const s of sockets.get(room.code) || []) if (s.pid != null) send(s, { t: "react", pi: ws.pid, e: msg.e });
+      return;
+    }
+    case "addBot": { // host adds a computer player in the waiting room
+      if (!room || ws.pid !== room.host || room.state) return;
+      if (room.members.length >= MAX_PLAYERS) return err("Der Raum ist voll (10 Spieler).");
+      const taken = new Set(room.members.map((m) => m.name));
+      const name = BOT_NAMES.find((n) => !taken.has(n)) || `Bot ${room.members.length + 1}`;
+      room.members.push({ name, secret: crypto.randomUUID(), bot: true });
+      broadcast(room); saveRooms();
+      return;
+    }
+    case "removeBot": {
+      const i = +msg.seat;
+      if (!room || ws.pid !== room.host || room.state || !room.members[i] || !room.members[i].bot) return;
+      room.members.splice(i, 1);
+      for (const s of sockets.get(room.code) || []) if (s.pid > i) s.pid--;
+      if (room.host > i) room.host--;
+      broadcast(room); saveRooms();
+      return;
+    }
+    case "standIn": { // host lets the computer play for someone who dropped out
+      const i = +msg.seat;
+      if (!room || ws.pid !== room.host || !room.state || !room.members[i] || room.members[i].bot) return;
+      if (online(room.code).has(i)) return err(`${room.members[i].name} ist noch online.`);
+      room.members[i].bot = true; room.members[i].standIn = true;
+      room.state.players[i].bot = true;
+      broadcast(room); saveRooms();
       return;
     }
     case "end": { // host closes the game and returns everyone to the lobby

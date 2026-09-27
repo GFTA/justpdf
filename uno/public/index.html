@@ -229,6 +229,15 @@ h1 span{color:var(--accent)}
 .swap-list button{display:flex;justify-content:space-between;align-items:center;border:0;border-radius:14px;padding:14px 16px;background:var(--surface);box-shadow:inset 0 0 0 1.5px var(--line);font-weight:800;font-size:16px}
 .swap-list b{font-variant-numeric:tabular-nums;color:var(--accent)}
 .hand .card.jump{box-shadow:0 0 0 3px var(--green),0 0 18px var(--green);transform:translateY(-8px)}
+.btn.small{flex:none;padding:8px 11px;font-size:13px;border-radius:11px}
+.turnbar{height:4px;margin:-6px 0 2px;border-radius:2px;background:var(--line);overflow:hidden}
+.turnbar i{display:block;height:100%;width:100%;background:var(--accent);transform-origin:0 50%}
+.turnbar.low i{background:var(--red)}
+.hand .card.hint{animation:hintpulse .9s ease-in-out 3;transform:translateY(-16px)}
+@keyframes hintpulse{50%{box-shadow:0 0 0 4px var(--accent),0 0 30px var(--accent)}}
+.members .rmbot{border:0;background:transparent;color:var(--muted);font-size:20px;width:32px;height:32px;border-radius:8px}
+.prow .botbtn{flex:none;width:42px;height:42px;border-radius:12px;border:0;background:var(--bg2);box-shadow:inset 0 0 0 1.5px var(--line);font-size:20px;filter:grayscale(1);opacity:.55}
+.prow .botbtn[aria-pressed="true"]{filter:none;opacity:1;box-shadow:inset 0 0 0 2px var(--accent)}
 .chaos-tag{font-family:var(--display);font-size:11px;letter-spacing:.06em;color:#fff;background:var(--red);padding:2px 7px;border-radius:6px}
 .hand{--cw:clamp(66px,20vw,92px);--step:calc(var(--cw) + 6px);display:flex;overflow-x:auto;overflow-y:hidden;overscroll-behavior:contain;padding:20px 4px 6px;scrollbar-width:none;min-height:calc(var(--cw)*1.5 + 26px)}
 .hand::-webkit-scrollbar{display:none}
@@ -399,6 +408,7 @@ h1 span{color:var(--accent)}
     <div class="panel">
       <div class="label" id="membersLabel"></div>
       <ul class="members" id="members"></ul>
+      <button class="btn btn-ghost" id="addBot" type="button" hidden>+ Computer-Gegner hinzufügen</button>
       <p class="hint" id="lobbyHint"></p>
     </div>
     <div class="lobby-actions">
@@ -450,8 +460,11 @@ h1 span{color:var(--accent)}
     </div>
 
     <div class="dock" id="dock">
+      <div class="turnbar" id="turnBar" hidden><i></i></div>
       <div class="status">
         <div class="who"><b id="whoName"></b><small id="whoHint"></small></div>
+        <button class="btn small" id="hintBtn" type="button" hidden title="Tipp (H)">Tipp</button>
+        <button class="btn small" id="sortBtn" type="button" title="Hand sortieren (S)"></button>
         <button class="btn" id="keepBtn" type="button" hidden>Behalten</button>
       </div>
       <div class="hand" id="hand"></div>
@@ -513,6 +526,8 @@ h1 span{color:var(--accent)}
           <li>Legst du deine vorletzte Karte, erscheint ein großer <b>UNO!</b>-Knopf. Drück ihn innerhalb von 3 Sekunden, sonst ziehst du 2 Strafkarten.</li>
           <li>Bekommst du eine +2 oder +4, werden die Karten automatisch gezogen und du spielst danach normal weiter (außer die Hausregel „Nach +2/+4 aussetzen“ ist an).</li>
           <li>Karte antippen hebt sie an, nochmal antippen legt sie. Am Computer: Karte anklicken oder ziehen, <b>D</b> zieht vom Stapel, <b>U</b> ruft UNO, <b>Esc</b> schließt Fenster.</li>
+          <li><b>Computer-Gegner</b>: Online fügt der Host sie im Warteraum hinzu. Beim Spiel mit einem Handy machst du mit 🤖 aus jedem Platz einen Computer, so kannst du auch allein spielen. Fällt online jemand aus, kann der Host ihn durch den Computer ersetzen lassen, bis er zurück ist.</li>
+          <li><b>Tipp</b> zeigt dir eine gute Karte. <b>Sortieren</b> ordnet deine Hand nach Farbe oder nach Zahl.</li>
           <li>Über das Menü kannst du eine Runde aufgeben. Deine Karten zählen dann für den Sieger, in der nächsten Runde bist du wieder dabei.</li>
           <li>Hausregeln legt der Host im Warteraum fest. Welche gelten, steht oben in diesem Menü.</li>
           <li>Wer zuerst keine Karten mehr hat, gewinnt die Runde. Punkte: Zahlen = Augenwert, Aussetzen/Richtungswechsel/+2 = 20, Farbwahl/+4 = 50.</li>

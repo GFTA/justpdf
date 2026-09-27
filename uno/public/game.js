@@ -47,8 +47,10 @@
     { k: "drawUntil", name: "Ziehen, bis es passt", desc: "Wer vom Stapel zieht, zieht so lange, bis eine passende Karte kommt." },
     { k: "sevenZero", name: "7 tauscht, 0 dreht", desc: "Mit einer 7 tauschst du deine Hand mit jemandem. Bei einer 0 geben alle ihre Hand in Spielrichtung weiter." },
     { k: "jumpIn", name: "Reinwerfen", desc: "Wer genau dieselbe Karte hat (Farbe und Wert), darf sie sofort legen, auch wenn er nicht dran ist.", onlineOnly: true },
-    { k: "chaos", name: "Chaos-Modus", desc: "Alle Sonderkarten doppelt im Stapel (140 statt 108 Karten)." }
+    { k: "chaos", name: "Chaos-Modus", desc: "Alle Sonderkarten doppelt im Stapel (140 statt 108 Karten)." },
+    { k: "turnTimer", name: "Zugzeit 30 Sekunden", desc: "Wer zu lange überlegt, zieht automatisch eine Karte und ist fertig.", onlineOnly: true }
   ];
+  const TURN_MS = 30000;
   function normRules(r) {
     const o = {};
     for (const x of RULES) o[x.k] = !!(r && r[x.k]);
@@ -275,6 +277,16 @@
     if (!p) return fail("Unbekannter Spieler.");
     if (p.out) return fail("Du hast diese Runde aufgegeben.");
 
+    if (a.t === "timeout") { // the server's turn clock ran out
+      if (pi !== S.cur) return fail("Nicht dran.");
+      log(S, `${p.name}: Zeit abgelaufen.`);
+      events.push({ t: "timeout", pi });
+      if (S.pending) { takePending(S, pi, events); if (S.cur !== pi) return { ok: true, events }; }
+      else if (S.phase === "play") { const got = draw(S, pi, 1); if (got.length) events.push({ t: "drew", pi, id: got[0].id, n: 1 }); }
+      beginTurn(S, nextIdx(S, pi), events);
+      return { ok: true, events };
+    }
+
     if (pi !== S.cur) {
       const c = a.t === "play" && p.hand.find((x) => x.id === a.id);
       if (!c || !canJumpIn(S, c)) return fail(`${S.players[S.cur].name} ist dran.`);
@@ -380,11 +392,50 @@
     return fail("Unbekannte Aktion.");
   }
 
+  // The computer player, also used for the hint button. Works on a view, so it only
+  // knows what that player could see.
+  function suggest(v) {
+    if (!v || !v.hand) return null;
+    if ((v.unoWaits || []).some((w) => w.pi === v.me)) return { t: "uno" };
+    if ((v.phase !== "play" && v.phase !== "drawn") || v.cur !== v.me) return null;
+    const stackOk = (c) => !v.pending || (v.top.v === "d2" ? c.v === "d2" || c.v === "d4" : c.v === "d4");
+    const fits = (c) => stackOk(c) && (c.c === "w" || c.c === v.color || c.v === v.top.v);
+    let options = v.hand.filter(fits);
+    if (v.phase === "drawn") options = options.filter((c) => c.id === v.drawnId);
+    if (!options.length) return { t: v.phase === "drawn" ? "keep" : "draw" };
+    const count = {};
+    for (const c of v.hand) if (c.c !== "w") count[c.c] = (count[c.c] || 0) + 1;
+    const nextCount = v.players[v.next] ? v.players[v.next].count : 7;
+    const danger = nextCount <= 2;
+    const score = (c) => {
+      if (c.v === "d4") return danger || v.pending ? 40 : -12;
+      if (c.v === "wild") return danger ? 20 : -8;
+      let s = 10 + (count[c.c] || 0) * 2;
+      if (c.v === "skip" || c.v === "rev" || c.v === "d2") s += nextCount <= 3 ? 24 : 5;
+      if (isNum(c)) s += +c.v * 0.4; // get rid of expensive cards first
+      return s;
+    };
+    const best = options.slice().sort((a, b) => score(b) - score(a))[0];
+    const a = { t: "play", id: best.id };
+    if (best.c === "w") {
+      const left = v.hand.filter((c) => c.id !== best.id && c.c !== "w");
+      const tally = {};
+      for (const c of left) tally[c.c] = (tally[c.c] || 0) + 1;
+      a.color = COLORS.slice().sort((x, y) => (tally[y] || 0) - (tally[x] || 0))[0];
+    }
+    if (best.v === "7" && v.rules && v.rules.sevenZero && v.hand.length > 1) {
+      let target = -1;
+      v.players.forEach((p, i) => { if (i !== v.me && !p.out && (target < 0 || p.count < v.players[target].count)) target = i; });
+      a.target = target;
+    }
+    return a;
+  }
+
   // What player `pi` may see. pi = -1 shows no hand (spectator / hand-off screen).
   function view(S, pi) {
     const me = S.players[pi];
     return {
-      players: S.players.map((p) => ({ name: p.name, count: p.hand.length, score: p.score, out: !!p.out })),
+      players: S.players.map((p) => ({ name: p.name, count: p.hand.length, score: p.score, out: !!p.out, bot: !!p.bot })),
       me: pi,
       hand: me ? me.hand.slice() : [],
       top: top(S),
@@ -400,5 +451,5 @@
     };
   }
 
-  return { COLORS, CNAME, VNAME, UNO_MS, RULES, normRules, canJumpIn, newGame, startRound, act, tick, nextDeadline, view, canPlay, cardName, isNum, points, nextIdx, buildDeck };
+  return { COLORS, CNAME, VNAME, UNO_MS, TURN_MS, suggest, RULES, normRules, canJumpIn, newGame, startRound, act, tick, nextDeadline, view, canPlay, cardName, isNum, points, nextIdx, buildDeck };
 });
