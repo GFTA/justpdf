@@ -136,7 +136,6 @@
     for (const ev of events || []) {
       if (ev.t === "played") sfx("card");
       if (ev.t === "drew" || ev.t === "took") sfx("draw");
-      if ((ev.t === "drew" || ev.t === "took" || ev.t === "penalty") && ev.pi === L.cur) drawFx = true;
       ruleEvent(ev, L.players, -1);
       if (ev.t === "uno") { flashUno(L.players[ev.pi].name); sfx("uno"); }
       if (ev.t === "penalty") { toast(`${L.players[ev.pi].name} war zu langsam: 2 Strafkarten!`); sfx("bad"); }
@@ -155,19 +154,40 @@
     if (ms < 0) return;
     localUnoT = setTimeout(() => {
       if (mode !== "local" || !L) return;
-      localEvents(G.tick(L));
+      const snap = snapshot(), ev = G.tick(L);
+      localEvents(ev); trackIncoming(snap, ev);
       store.set(K.local, L); render(); scheduleLocalUno();
     }, ms + 30);
   }
 
+  // Shared phone: remember which new cards each player got (drawn, +2/+4, penalties),
+  // so they fly in from the pile when that player looks at the hand next.
+  const incoming = {};
+  const snapshot = () => L.players.map((p) => new Set(p.hand.map((c) => c.id)));
+  function trackIncoming(before, events) {
+    if ((events || []).some((e) => e.t === "swap" || e.t === "rotate")) return;
+    L.players.forEach((p, i) => {
+      const fresh = p.hand.filter((c) => !before[i].has(c.id)).map((c) => c.id);
+      if (fresh.length) incoming[i] = (incoming[i] || []).concat(fresh);
+    });
+  }
+  let hold = null, holdT = null; // keep showing the drawer's hand while their card flies in
   function doAct(a, actor) {
     if (mode === "local") {
-      const before = L.turn;
-      const res = G.act(L, actor == null ? L.cur : actor, a);
+      const before = L.turn, who = actor == null ? L.cur : actor, snap = snapshot();
+      const res = G.act(L, who, a);
       localEvents(res.events, before);
+      trackIncoming(snap, res.events);
       if (!res.ok) { toast(res.error); store.set(K.local, L); render(); return false; }
       sel = null;
-      if (L.phase !== "roundEnd" && L.turn !== before) hidden = true;
+      if (L.phase !== "roundEnd" && L.turn !== before) {
+        hidden = true;
+        // drew a card that does not fit: let them watch it arrive before passing the phone
+        if ((res.events || []).some((e) => e.t === "drew" && e.pi === who) && incoming[who]) {
+          hold = who; clearTimeout(holdT);
+          holdT = setTimeout(() => { hold = null; render(); }, 450 + 110 * (incoming[who].length - 1) + 700);
+        }
+      }
       store.set(K.local, L);
       render();
       scheduleLocalUno();
@@ -341,10 +361,10 @@
     renderUnoCall();
     if (drag) { renderPending = true; return; }
     if (mode === "local" && L) {
-      V = G.view(L, L.cur);
+      V = G.view(L, hold != null ? hold : L.cur);
       showScreen("game");
       renderGame();
-      $("#handoff").hidden = !(hidden && L.phase !== "roundEnd");
+      $("#handoff").hidden = !(hidden && hold == null && L.phase !== "roundEnd");
       if (!$("#handoff").hidden) renderHandoff();
     } else if (mode === "online" && R) {
       $("#handoff").hidden = true;
@@ -438,8 +458,14 @@
 
     // cards that just came from the pile fly in from it
     const ids = new Set(V.hand.map((c) => c.id));
-    const same = prevHand && prevHand.me === V.me && prevHand.round === V.round && !(mode === "local" && hidden);
-    if (same && drawFx) flyIn(V.hand.filter((c) => !prevHand.ids.has(c.id)).map((c) => c.id));
+    if (mode === "local") {
+      if ((!hidden || hold === V.me) && incoming[V.me]) {
+        flyIn(incoming[V.me].filter((id) => ids.has(id)));
+        delete incoming[V.me];
+      }
+    } else if (prevHand && prevHand.me === V.me && prevHand.round === V.round && drawFx) {
+      flyIn(V.hand.filter((c) => !prevHand.ids.has(c.id)).map((c) => c.id));
+    }
     drawFx = false;
     prevHand = { me: V.me, round: V.round, ids };
 
@@ -563,7 +589,12 @@
 
   let prevHand = null, drawFx = false;
   function flyIn(ids) {
-    if (!ids.length || ids.length > 12 || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (!ids.length || ids.length > 12) return;
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      // phones with "reduce animations": no flight, just a short glow on the new cards
+      ids.forEach((id) => { const el = document.querySelector(`#hand [data-id="${id}"]`); if (el) el.animate([{ opacity: 0.2 }, { opacity: 1 }], { duration: 250 }); });
+      return;
+    }
     const deckEl = $("#drawPile .card:last-child");
     if (!deckEl || !deckEl.offsetWidth) return;
     const d = deckEl.getBoundingClientRect();
