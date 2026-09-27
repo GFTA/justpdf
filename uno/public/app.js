@@ -24,8 +24,10 @@
   let V = null;           // view currently on screen
   let sel = null;         // selected card id (tap fallback)
   let pendingWild = null;
-  let server = null;      // /info of the Pass-Uno server, null when there is none
-  let tab = "online";
+  let server = null;      // server info once found ({} when only the WebSocket answered)
+  let serverState = "checking"; // "checking" | "ok" | "none"
+  const webHost = /^https?:$/.test(location.protocol);
+  let tab = webHost ? "online" : "local", tabTouched = false;
   let goalLocal = 500, goalOnline = 500;
   let names = store.get(K.names) || ["", "", ""];
   let lastTurn = null;
@@ -503,8 +505,14 @@
 
   function renderHome() {
     for (const b of document.querySelectorAll("#modeTabs button")) b.setAttribute("aria-pressed", String(b.dataset.tab === tab));
-    $("#onlinePanel").hidden = tab !== "online" || !server;
-    $("#onlineOff").hidden = tab !== "online" || !!server;
+    // never hide the online form on a web address: a failed check (ad blocker, slow
+    // network) must not lock people out; connecting will tell if there really is no server
+    $("#onlinePanel").hidden = tab !== "online" || !webHost;
+    $("#onlineOff").hidden = tab !== "online" || webHost;
+    const sh = $("#serverHint");
+    sh.hidden = serverState === "ok";
+    sh.textContent = serverState === "checking" ? "Suche den Spiel-Server …"
+      : "Unter dieser Adresse antwortet kein Pass-Uno-Server. Du kannst es trotzdem versuchen, „Ein Handy für alle“ geht immer.";
     $("#localPanel").hidden = tab !== "local";
     for (const b of document.querySelectorAll("#goalOnline button")) b.setAttribute("aria-pressed", String(+b.dataset.goal === goalOnline));
     for (const b of document.querySelectorAll("#goalLocal button")) b.setAttribute("aria-pressed", String(+b.dataset.goal === goalLocal));
@@ -525,7 +533,7 @@
 
   function joinUrl() {
     const local = /^(localhost|127\.|\[::1\])/.test(location.hostname);
-    const base = local && server && server.ips && server.ips.length
+    const base = local && server && server.ips && server.ips.length && !/^172\.(1[6-9]|2\d|3[01])\./.test(server.ips[0])
       ? `${location.protocol}//${server.ips[0]}:${location.port || server.port}/`
       : location.origin + location.pathname;
     return `${base}?r=${R.code}`;
@@ -582,7 +590,8 @@
     if (ws && ws.readyState <= 1) return;
     ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
     ws.onopen = () => {
-      retry = 0;
+      retry = 0; clearTimeout(giveUpT);
+      if (serverState !== "ok") { serverState = "ok"; server = server || {}; }
       const s = store.get(K.online);
       if (s && !queue.some((m) => m.t === "create" || m.t === "join")) ws.send(JSON.stringify({ t: "resume", code: s.code, secret: s.secret }));
       for (const m of queue.splice(0)) ws.send(JSON.stringify(m));
@@ -595,9 +604,21 @@
       render();
     };
   }
+  let giveUpT = null;
   function wsSend(m) {
     if (ws && ws.readyState === 1) { ws.send(JSON.stringify(m)); return true; }
-    if (m.t === "create" || m.t === "join") { queue.push(m); wantOnline = true; connect(); return true; }
+    if (m.t === "create" || m.t === "join") {
+      queue.push(m); wantOnline = true; retry = 0; connect();
+      clearTimeout(giveUpT);
+      giveUpT = setTimeout(() => {
+        if (ws && ws.readyState === 1) return;
+        queue = []; wantOnline = false;
+        if (ws) ws.close();
+        toast("Der Spiel-Server antwortet nicht. Prüf die Adresse oder die Internetverbindung.");
+        render();
+      }, 8000);
+      return true;
+    }
     return false;
   }
   function onMsg(m) {
@@ -636,7 +657,7 @@
 
   // ---------- events ----------
   $("#fan").innerHTML = [{ id: -1, c: "r", v: "7" }, { id: -2, c: "y", v: "skip" }, { id: -3, c: "g", v: "d2" }, { id: -4, c: "w", v: "d4" }].map((c) => cardHTML(c)).join("");
-  $("#modeTabs").addEventListener("click", (e) => { const b = e.target.closest("[data-tab]"); if (b) { tab = b.dataset.tab; renderHome(); } });
+  $("#modeTabs").addEventListener("click", (e) => { const b = e.target.closest("[data-tab]"); if (b) { tab = b.dataset.tab; tabTouched = true; renderHome(); } });
   $("#goalOnline").addEventListener("click", (e) => { const b = e.target.closest("[data-goal]"); if (b) { goalOnline = +b.dataset.goal; renderHome(); } });
   $("#goalLocal").addEventListener("click", (e) => { const b = e.target.closest("[data-goal]"); if (b) { goalLocal = +b.dataset.goal; renderHome(); } });
 
@@ -759,24 +780,37 @@
   if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 
   // ---------- boot ----------
-  async function detectServer() {
-    if (!/^https?:$/.test(location.protocol)) return null;
+  // Is there a Pass-Uno server behind this address? Ask twice over HTTP (some ad blockers
+  // eat such requests), then simply try the WebSocket.
+  async function getJson(path, ms) {
+    const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), ms);
     try {
-      const ctl = new AbortController(); setTimeout(() => ctl.abort(), 2500);
-      const r = await fetch("/info", { cache: "no-store", signal: ctl.signal });
+      const r = await fetch(path, { cache: "no-store", signal: ctl.signal });
       const j = await r.json();
       return j && j.uno ? j : null;
-    } catch (e) { return null; }
+    } catch (e) { return null; } finally { clearTimeout(t); }
+  }
+  function probeSocket(ms) {
+    return new Promise((res) => {
+      let w;
+      try { w = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws"); } catch (e) { return res(false); }
+      const t = setTimeout(() => { w.close(); res(false); }, ms);
+      w.onopen = () => { clearTimeout(t); w.close(); res(true); };
+      w.onerror = () => { clearTimeout(t); res(false); };
+    });
+  }
+  async function detectServer() {
+    if (!webHost) return null;
+    return (await getJson("/pass-uno-server", 6000)) || (await getJson("/info", 4000)) || ((await probeSocket(6000)) ? {} : null);
   }
   const code = new URLSearchParams(location.search).get("r");
   if (code) $("#joinCode").value = code.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 4);
-  tab = "local";
   render();
+  if (webHost && (store.get(K.online) && !code)) { wantOnline = true; connect(); }
   detectServer().then((info) => {
-    server = info;
-    tab = server ? "online" : "local";
-    if (server && store.get(K.online) && !code) { wantOnline = true; connect(); }
+    if (info) { server = Object.assign(server || {}, info); serverState = "ok"; }
+    else if (serverState !== "ok") { serverState = "none"; if (!tabTouched && !code) tab = "local"; }
     render();
-    if (server && code && !$("#myName").value) $("#myName").focus();
+    if (serverState === "ok" && code && !$("#myName").value) $("#myName").focus();
   });
 })();

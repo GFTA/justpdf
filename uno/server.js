@@ -225,7 +225,7 @@ function lanIps() {
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, "http://x");
-  if (url.pathname === "/info") {
+  if (url.pathname === "/info" || url.pathname === "/pass-uno-server") {
     res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
     return res.end(JSON.stringify({ uno: true, ips: lanIps(), port: PORT, rooms: rooms.size }));
   }
