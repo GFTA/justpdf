@@ -51,6 +51,11 @@
     { k: "turnTimer", name: "Zugzeit 30 Sekunden", desc: "Wer zu lange überlegt, zieht automatisch eine Karte und ist fertig.", onlineOnly: true }
   ];
   const TURN_MS = 30000;
+  const AVATARS = ["🦊", "🐼", "🐸", "🐯", "🦁", "🐨", "🐙", "🦄", "🐵", "🐧", "🦉", "🐢", "🐳", "🦖", "👻", "🤠"];
+  const BOT_NAMES = ["Robo", "Pixel", "Byte", "Turbo", "Nova", "Blitz", "Chip", "Zappy", "Kiwi", "Rocket"];
+  const BOT_LEVELS = { easy: "Einfach", normal: "Normal", hard: "Schwer" };
+  // how often a computer player remembers to call UNO
+  const BOT_UNO = { easy: 0.6, normal: 0.9, hard: 1 };
   function normRules(r) {
     const o = {};
     for (const x of RULES) o[x.k] = !!(r && r[x.k]);
@@ -195,6 +200,7 @@
     S.players[wi].score += pts;
     const over = S.goal > 0 ? S.players[wi].score >= S.goal : true;
     S.last = { winner: wi, pts, over };
+    (S.history = S.history || []).push({ round: S.round, winner: wi, pts });
     S.phase = "roundEnd";
     S.unoWaits = [];
     log(S, over ? `${S.players[wi].name} gewinnt das Spiel!` : `${S.players[wi].name} gewinnt die Runde (+${pts}).`);
@@ -248,7 +254,7 @@
 
     if (a.t === "next") {
       if (S.phase !== "roundEnd") return fail("Die Runde läuft noch.");
-      if (S.last && S.last.over) { S.players.forEach((p) => { p.score = 0; }); S.round = 0; }
+      if (S.last && S.last.over) { S.players.forEach((p) => { p.score = 0; }); S.round = 0; S.history = []; }
       startRound(S);
       return { ok: true, events };
     }
@@ -394,7 +400,9 @@
 
   // The computer player, also used for the hint button. Works on a view, so it only
   // knows what that player could see.
-  function suggest(v) {
+  // level: "easy" plays any fitting card, "normal" plays sensibly, "hard" also hunts
+  // players who are close to winning
+  function suggest(v, level) {
     if (!v || !v.hand) return null;
     if ((v.unoWaits || []).some((w) => w.pi === v.me)) return { t: "uno" };
     if ((v.phase !== "play" && v.phase !== "drawn") || v.cur !== v.me) return null;
@@ -406,12 +414,21 @@
     const count = {};
     for (const c of v.hand) if (c.c !== "w") count[c.c] = (count[c.c] || 0) + 1;
     const nextCount = v.players[v.next] ? v.players[v.next].count : 7;
-    const danger = nextCount <= 2;
+    if (level === "easy") {
+      const c = options[Math.floor(Math.random() * options.length)];
+      const a = { t: "play", id: c.id };
+      if (c.c === "w") a.color = COLORS[Math.floor(Math.random() * 4)];
+      if (c.v === "7" && v.rules && v.rules.sevenZero && v.hand.length > 1) a.target = v.players.findIndex((p, i) => i !== v.me && !p.out);
+      return a;
+    }
+    const hard = level === "hard";
+    const minOther = Math.min(...v.players.filter((p, i) => i !== v.me && !p.out).map((p) => p.count));
+    const danger = nextCount <= (hard ? 3 : 2) || (hard && minOther <= 1);
     const score = (c) => {
       if (c.v === "d4") return danger || v.pending ? 40 : -12;
       if (c.v === "wild") return danger ? 20 : -8;
       let s = 10 + (count[c.c] || 0) * 2;
-      if (c.v === "skip" || c.v === "rev" || c.v === "d2") s += nextCount <= 3 ? 24 : 5;
+      if (c.v === "skip" || c.v === "rev" || c.v === "d2") s += nextCount <= 3 || (hard && nextCount < v.hand.length) ? 24 : 5;
       if (isNum(c)) s += +c.v * 0.4; // get rid of expensive cards first
       return s;
     };
@@ -435,7 +452,7 @@
   function view(S, pi) {
     const me = S.players[pi];
     return {
-      players: S.players.map((p) => ({ name: p.name, count: p.hand.length, score: p.score, out: !!p.out, bot: !!p.bot })),
+      players: S.players.map((p) => ({ name: p.name, count: p.hand.length, score: p.score, out: !!p.out, bot: !!p.bot, avatar: p.avatar || "" })),
       me: pi,
       hand: me ? me.hand.slice() : [],
       top: top(S),
@@ -447,9 +464,9 @@
       rules: rulesOf(S), chaos: rulesOf(S).chaos, pending: S.pending || 0,
       deckCount: S.deck.length,
       round: S.round, goal: S.goal, turn: S.turn,
-      log: S.log.slice(-6), last: S.last
+      log: S.log.slice(-40), last: S.last, history: S.history || []
     };
   }
 
-  return { COLORS, CNAME, VNAME, UNO_MS, TURN_MS, suggest, RULES, normRules, canJumpIn, newGame, startRound, act, tick, nextDeadline, view, canPlay, cardName, isNum, points, nextIdx, buildDeck };
+  return { COLORS, CNAME, VNAME, UNO_MS, TURN_MS, AVATARS, BOT_NAMES, BOT_LEVELS, BOT_UNO, suggest, RULES, normRules, canJumpIn, newGame, startRound, act, tick, nextDeadline, view, canPlay, cardName, isNum, points, nextIdx, buildDeck };
 });

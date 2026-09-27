@@ -22,10 +22,15 @@
   --bg:#1a1426; --bg2:#231a33; --surface:#2b2140; --line:#3d3057;
   --text:#f4effb; --muted:#a99cc2;
   --red:#e0393e; --yellow:#f2c230; --green:#2fa35b; --blue:#2d6fd6; --wild:#17121f;
-  --accent:#f2c230;
+  --accent:#f2c230; --scrim:rgba(15,10,22,.86); --cs:1;
   --display:"Bowlby One", "Arial Black", Impact, system-ui, sans-serif;
   --ui:"Figtree", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
+/* table designs, picked under "Aussehen" */
+:root[data-table="felt"]{--bg:#0f2a1f;--bg2:#15372a;--surface:#1c4636;--line:#2b5c48;--text:#eef7f1;--muted:#9cc3b1;--scrim:rgba(6,22,15,.86)}
+:root[data-table="ocean"]{--bg:#0e1a2b;--bg2:#15243a;--surface:#1c3050;--line:#2b4468;--text:#eef3fb;--muted:#9fb4d3;--scrim:rgba(6,12,24,.86)}
+:root[data-table="light"]{color-scheme:light;--bg:#eceff5;--bg2:#ffffff;--surface:#e2e7f0;--line:#cbd3e1;--text:#1b2030;--muted:#5b6479;--scrim:rgba(226,231,240,.92)}
+:root[data-table="light"] .card-back::after{background:#17121f}
 *{box-sizing:border-box}
 /* The page itself never scrolls: iOS Safari ignores overflow:hidden on body and would
    otherwise slide the whole page and pull its toolbar over the cards. Only inner
@@ -193,7 +198,7 @@ h1 span{color:var(--accent)}
 .status .who b{display:block;font-size:17px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .status .who small{display:block;color:var(--muted);font-size:13px;line-height:1.3}
 #keepBtn{flex:none;padding:10px 14px;font-size:14px}
-#unoCall{z-index:35;background:rgba(15,10,22,.9);gap:22px}
+#unoCall{z-index:35;background:var(--scrim);gap:22px}
 #unoCall .who{font-weight:800;font-size:18px;text-align:center}
 #unoBig{position:relative;border:0;padding:0;border-radius:50%;width:min(72vw,300px);aspect-ratio:1;background:var(--red);color:#fff;
   font-family:var(--display);font-size:min(17vw,72px);text-shadow:4px 4px 0 #1b1325;box-shadow:0 10px 0 #9c1f23,0 0 0 10px rgba(224,57,62,.25);
@@ -239,7 +244,7 @@ h1 span{color:var(--accent)}
 .prow .botbtn{flex:none;width:42px;height:42px;border-radius:12px;border:0;background:var(--bg2);box-shadow:inset 0 0 0 1.5px var(--line);font-size:20px;filter:grayscale(1);opacity:.55}
 .prow .botbtn[aria-pressed="true"]{filter:none;opacity:1;box-shadow:inset 0 0 0 2px var(--accent)}
 .chaos-tag{font-family:var(--display);font-size:11px;letter-spacing:.06em;color:#fff;background:var(--red);padding:2px 7px;border-radius:6px}
-.hand{--cw:clamp(66px,20vw,92px);--step:calc(var(--cw) + 6px);display:flex;overflow-x:auto;overflow-y:hidden;overscroll-behavior:contain;padding:20px 4px 6px;scrollbar-width:none;min-height:calc(var(--cw)*1.5 + 26px)}
+.hand{--cw:calc(clamp(66px,20vw,92px) * var(--cs));--step:calc(var(--cw) + 6px);display:flex;overflow-x:auto;overflow-y:hidden;overscroll-behavior:contain;padding:20px 4px 6px;scrollbar-width:none;min-height:calc(var(--cw)*1.5 + 26px)}
 .hand::-webkit-scrollbar{display:none}
 .hand::before,.hand::after{content:"";flex:1 0 0}
 .hand .card{--cw:inherit;touch-action:pan-x}
@@ -256,7 +261,7 @@ h1 span{color:var(--accent)}
   .btn:not(:disabled):hover{filter:brightness(1.08)}
 }
 @media (min-width:900px) and (min-height:700px){
-  .hand{--cw:clamp(80px,9vw,104px)}
+  .hand{--cw:calc(clamp(80px,9vw,104px) * var(--cs))}
   .pile .card{--cw:clamp(104px,11vw,132px)}
   .lastmove{font-size:14px}
 }
@@ -273,7 +278,7 @@ h1 span{color:var(--accent)}
 
 /* ---------- overlays ---------- */
 .overlay{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;
-  padding:calc(env(safe-area-inset-top,0px) + 24px) 16px calc(env(safe-area-inset-bottom,0px) + 24px);background:rgba(15,10,22,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+  padding:calc(env(safe-area-inset-top,0px) + 24px) 16px calc(env(safe-area-inset-bottom,0px) + 24px);background:var(--scrim);color:var(--text);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
 .sheet{width:100%;max-width:440px;display:flex;flex-direction:column;gap:14px;background:var(--bg2);border-radius:24px;padding:22px 18px;box-shadow:inset 0 0 0 1.5px var(--line),0 20px 60px rgba(0,0,0,.5);max-height:100%;overflow-y:auto}
 .sheet h2{margin:0;font-family:var(--display);font-weight:400;font-size:26px;line-height:1.1;text-wrap:balance}
 #handoff{background:var(--bg);backdrop-filter:none;-webkit-backdrop-filter:none}
@@ -309,6 +314,29 @@ h1 span{color:var(--accent)}
 #reactBar{position:fixed;z-index:45;top:calc(env(safe-area-inset-top,0px) + 62px);right:16px;display:flex;gap:4px;padding:6px;border-radius:16px;background:var(--surface);box-shadow:inset 0 0 0 1.5px var(--line),0 12px 30px rgba(0,0,0,.5)}
 #reactBar button{border:0;background:transparent;font-size:28px;width:46px;height:46px;border-radius:12px;line-height:1}
 #reactBar button:active{background:var(--bg2)}
+.bubble.text{font-size:13px;font-weight:800;white-space:nowrap;background:#fff;color:#1a1426;padding:6px 10px;border-radius:12px;filter:drop-shadow(0 4px 8px rgba(0,0,0,.4))}
+.dock .bubble.text{font-size:15px}
+#reactBar{flex-wrap:wrap;max-width:300px;justify-content:center}
+#reactBar .phrase{width:auto;height:36px;padding:0 10px;font-size:13px;font-weight:800;border-radius:10px;background:var(--bg2);color:var(--text)}
+.avrow{display:flex;gap:8px}
+.avbtn{flex:none;width:50px;height:50px;border-radius:14px;border:0;background:var(--bg2);box-shadow:inset 0 0 0 1.5px var(--line);font-size:28px;line-height:1}
+.avgrid{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;padding:8px;border-radius:14px;background:var(--bg2);box-shadow:inset 0 0 0 1.5px var(--line)}
+.avgrid button{border:0;background:transparent;font-size:26px;aspect-ratio:1;border-radius:10px}
+.avgrid button[aria-pressed="true"]{background:var(--surface);box-shadow:inset 0 0 0 2px var(--accent)}
+.prow .avbtn{width:42px;height:42px;font-size:22px;border-radius:12px}
+.members .av{font-size:20px;line-height:1;border:0;background:transparent;padding:0}
+#hoAvatar{font-size:64px;line-height:1}
+.look{display:flex;flex-direction:column;gap:10px}
+.look .seg{grid-template-columns:repeat(4,1fr)}
+.look .seg.three{grid-template-columns:repeat(3,1fr)}
+.swatch{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:6px;vertical-align:-1px;box-shadow:inset 0 0 0 1.5px rgba(128,128,128,.5)}
+.hist{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+.hist th,.hist td{padding:6px 8px;text-align:left;border-bottom:1px solid var(--line)}
+.hist th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.hist td:last-child,.hist th:last-child{text-align:right}
+.histwrap{max-height:180px;overflow-y:auto}
+.fulllog{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;max-height:220px;overflow-y:auto;font-size:13px}
+.fulllog li{padding:6px 10px;border-radius:10px;background:var(--surface)}
 .bubble{position:absolute;z-index:5;left:50%;top:-6px;font-size:34px;line-height:1;pointer-events:none;transform:translateX(-50%);animation:floatup 2.4s ease-out forwards;filter:drop-shadow(0 4px 6px rgba(0,0,0,.5))}
 .dock .bubble{top:-24px;font-size:40px}
 @keyframes floatup{0%{transform:translate(-50%,10px) scale(.4);opacity:0}15%{transform:translate(-50%,0) scale(1.15);opacity:1}75%{opacity:1}100%{transform:translate(-50%,-46px) scale(1);opacity:0}}
@@ -345,7 +373,11 @@ h1 span{color:var(--accent)}
     <div class="panel" id="onlinePanel">
       <p class="hint" id="serverHint" hidden></p>
       <label class="label" for="myName">Dein Name</label>
-      <input class="field" id="myName" maxlength="18" autocomplete="nickname" enterkeyhint="done" placeholder="z. B. Anna">
+      <div class="avrow">
+        <button class="avbtn" id="myAvatar" type="button" aria-label="Avatar wählen"></button>
+        <input class="field" id="myName" maxlength="18" autocomplete="nickname" enterkeyhint="done" placeholder="z. B. Anna">
+      </div>
+      <div class="avgrid" id="avatarGrid" hidden></div>
       <div class="label">Raum beitreten</div>
       <div class="row">
         <input class="field code" id="joinCode" maxlength="4" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go" placeholder="CODE" aria-label="Raum-Code">
@@ -384,8 +416,16 @@ h1 span{color:var(--accent)}
         <summary><span class="label">Hausregeln</span><span class="rules-sum" id="rulesLocalSum"></span></summary>
         <div class="rules-list" id="rulesLocal"></div>
       </details>
+      <div class="panel" id="levelLocalBox" hidden>
+        <div class="label">Stärke der Computer-Gegner</div>
+        <div class="seg" id="levelLocal"></div>
+      </div>
       <button class="btn btn-primary btn-block" id="startLocal" type="button">Neues Spiel starten</button>
     </div>
+    <details class="houserules">
+      <summary><span class="label">Aussehen</span><span class="rules-sum" id="lookSum"></span></summary>
+      <div class="look" id="lookHome"></div>
+    </details>
     <p class="hint">Wer eine Runde gewinnt, bekommt die Punkte aller Karten, die die anderen noch auf der Hand haben.</p>
   </section>
 
@@ -409,6 +449,10 @@ h1 span{color:var(--accent)}
       <div class="label" id="membersLabel"></div>
       <ul class="members" id="members"></ul>
       <button class="btn btn-ghost" id="addBot" type="button" hidden>+ Computer-Gegner hinzufügen</button>
+      <div class="panel" id="levelLobbyBox" hidden>
+        <div class="label">Stärke der Computer-Gegner</div>
+        <div class="seg" id="levelLobby"></div>
+      </div>
       <p class="hint" id="lobbyHint"></p>
     </div>
     <div class="lobby-actions">
@@ -474,6 +518,7 @@ h1 span{color:var(--accent)}
 
 <div class="overlay" id="handoff" hidden>
   <div class="pass">Handy weitergeben an</div>
+  <div id="hoAvatar" aria-hidden="true"></div>
   <div class="name" id="hoName"></div>
   <div class="meta" id="hoMeta"></div>
   <ul class="log" id="hoLog"></ul>
@@ -507,6 +552,7 @@ h1 span{color:var(--accent)}
     <h2 id="reTitle"></h2>
     <p class="hint" id="reText"></p>
     <ol class="scores" id="reScores"></ol>
+    <div class="histwrap" id="reHistWrap"><table class="hist" id="reHist"></table></div>
     <button class="btn btn-primary btn-block" id="reBtn" type="button"></button>
     <button class="btn btn-ghost btn-block" id="reBack" type="button"></button>
   </div>
@@ -535,6 +581,15 @@ h1 span{color:var(--accent)}
       </details>
     </div>
     <div class="hint" id="menuRules"></div>
+    <details class="rules">
+      <summary>Spielverlauf</summary>
+      <div class="histwrap"><table class="hist" id="menuHist"></table></div>
+      <ol class="fulllog" id="menuLog"></ol>
+    </details>
+    <details class="rules">
+      <summary>Aussehen</summary>
+      <div class="look" id="lookMenu"></div>
+    </details>
     <label class="toggle" for="soundOn"><input type="checkbox" id="soundOn" checked><span>Töne und Vibration</span></label>
     <div id="menuActions"></div>
     <button class="btn btn-primary btn-block" id="menuClose" type="button">Weiterspielen</button>
@@ -550,6 +605,8 @@ h1 span{color:var(--accent)}
 <div id="reactBar" hidden>
   <button type="button" data-e="👍">👍</button><button type="button" data-e="😂">😂</button><button type="button" data-e="😱">😱</button>
   <button type="button" data-e="😡">😡</button><button type="button" data-e="🎉">🎉</button><button type="button" data-e="🙈">🙈</button>
+  <button type="button" class="phrase" data-e="Gut gespielt!">Gut gespielt!</button><button type="button" class="phrase" data-e="Uff …">Uff …</button>
+  <button type="button" class="phrase" data-e="Beeil dich!">Beeil dich!</button><button type="button" class="phrase" data-e="Na warte!">Na warte!</button>
 </div>
 <canvas id="confetti" hidden></canvas>
 

@@ -31,6 +31,11 @@ zurück, bekommt er seinen Platz wieder. Außerdem: **Tipp**-Knopf, Hand nach Fa
 Zahl sortieren, Runde aufgeben, Tastenkürzel am Computer (D ziehen, U UNO, H Tipp,
 S sortieren, Esc schließen).
 
+**Anpassen**: Avatar für jeden Spieler, vier Tisch-Designs (Nacht, Filz, Ozean, Hell) und
+drei Kartengrößen, Stärke der Computer-Gegner (Einfach vergisst auch mal UNO). Gegner-Karten
+fliegen sichtbar vom Platz auf den Stapel, die Punkte jeder Runde stehen im Spielverlauf,
+und online gibt es neben Emojis auch kurze Sprüche.
+
 ## Auf dem HP Mini installieren
 
 Der Server ist ein einzelnes Node.js-Programm (`server.js`) ohne Datenbank. Spielstände

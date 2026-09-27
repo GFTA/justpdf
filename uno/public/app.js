@@ -40,6 +40,11 @@
   let goalLocal = 500, goalOnline = 500;
   let names = store.get(K.names) || ["", "", ""];
   let localBots = store.get("passuno.bots") || [];
+  let localAvatars = store.get("passuno.avatars") || [];
+  let localLevel = G.BOT_LEVELS[store.get("passuno.level")] ? store.get("passuno.level") : "normal";
+  let myAvatar = G.AVATARS.includes(store.get("passuno.avatar")) ? store.get("passuno.avatar") : G.AVATARS[Math.floor(Math.random() * G.AVATARS.length)];
+  const avatarFor = (i) => localAvatars[i] || G.AVATARS[i % G.AVATARS.length];
+  const nextAvatar = (a) => G.AVATARS[(G.AVATARS.indexOf(a) + 1) % G.AVATARS.length];
   let lastTurn = null;
 
   // ---------- helpers ----------
@@ -139,7 +144,7 @@
   }
   function localEvents(events, turnBefore) {
     for (const ev of events || []) {
-      if (ev.t === "played") sfx("card");
+      if (ev.t === "played") { sfx("card"); playFrom = ev.pi; }
       if (ev.t === "drew" || ev.t === "took") sfx("draw");
       ruleEvent(ev, L.players, -1);
       if (ev.t === "uno") { flashUno(L.players[ev.pi].name); sfx("uno"); }
@@ -191,10 +196,16 @@
     if (isBot(L.cur)) hidden = false;
     else hidden = L.cur !== viewer;
   }
-  let localBotT = null, localBotKey = null;
+  let localBotT = null, localBotKey = null, localUnoDecided = null;
+  const localForgot = new Set();
   function scheduleLocalBot() {
     if (mode !== "local" || !L || (L.phase !== "play" && L.phase !== "drawn")) { clearTimeout(localBotT); localBotKey = null; return; }
-    const w = (L.unoWaits || []).find((x) => isBot(x.pi));
+    let w = (L.unoWaits || []).find((x) => isBot(x.pi) && !localForgot.has(`${x.pi}:${x.until}`));
+    if (w && `${w.pi}:${w.until}` !== localUnoDecided) {
+      localUnoDecided = `${w.pi}:${w.until}`;
+      // weaker computers sometimes forget UNO and take the penalty
+      if (Math.random() > G.BOT_UNO[localLevel]) { localForgot.add(localUnoDecided); w = null; }
+    }
     const pi = w ? w.pi : isBot(L.cur) ? L.cur : -1;
     const key = pi < 0 ? null : `${L.round}:${L.turn}:${L.phase}:${pi}:${!!w}`;
     if (key === localBotKey) return;
@@ -203,7 +214,7 @@
     localBotT = setTimeout(() => {
       localBotKey = null;
       if (mode !== "local" || !L) return;
-      const a = G.suggest(G.view(L, pi));
+      const a = G.suggest(G.view(L, pi), localLevel);
       if (a && !doAct(a, pi) && a.t === "play") doAct({ t: L.phase === "drawn" ? "keep" : "draw" }, pi);
     }, (w ? 500 : 900) + Math.random() * 700);
   }
@@ -447,7 +458,7 @@
       html[slot] += `<div class="${cls}" data-seat="${i}" title="${esc(p.name)}: ${cnt} Karten${away ? " (offline)" : ""}" ` +
         `style="--step:${step.toFixed(1)}px;--lw:${vertical ? (big ? 110 : 76) : Math.round(room)}px">${badge}` +
         `<div class="sfan">${"<i></i>".repeat(Math.min(cnt, 60))}</div>` +
-        `<div class="slabel"><span class="sname">${p.bot ? "🤖 " : ""}${esc(p.name)}</span><span class="scount">${cnt}</span></div></div>`;
+        `<div class="slabel"><span class="sname">${p.avatar || (p.bot ? "🤖" : "")} ${esc(p.name)}</span><span class="scount">${cnt}</span></div></div>`;
     }
     for (const sl of Object.keys(html)) { const el = tbl.querySelector(".s-" + sl); if (el.innerHTML !== html[sl]) el.innerHTML = html[sl]; }
   }
@@ -459,7 +470,11 @@
 
     // table
     const disc = $("#discard");
-    if (disc.dataset.top !== String(V.top.id)) { disc.innerHTML = cardHTML(V.top); disc.dataset.top = V.top.id; }
+    if (disc.dataset.top !== String(V.top.id)) {
+      disc.innerHTML = cardHTML(V.top); disc.dataset.top = V.top.id;
+      if (playFrom != null && playFrom !== V.me) flyFromSeat(playFrom, disc.firstElementChild);
+    }
+    playFrom = null;
     disc.style.setProperty("--ring", CVAR[V.color]);
     $("#colorTag").style.setProperty("--ring", CVAR[V.color]);
     $("#colorName").textContent = `Farbe: ${G.CNAME[V.color]}`;
@@ -591,7 +606,7 @@
     const host = pi === (R && R.you) ? $("#dock") : document.querySelector(`#table .seat[data-seat="${pi}"]`);
     if (!host) return;
     const b = document.createElement("span");
-    b.className = "bubble"; b.textContent = e;
+    b.className = e.length > 2 ? "bubble text" : "bubble"; b.textContent = e;
     host.appendChild(b);
     setTimeout(() => b.remove(), 2500);
     sfx("pop");
@@ -661,7 +676,18 @@
     renderClock.t = setTimeout(() => { if (clockKey === key) { bar.classList.add("low"); if (myTurn()) { toast("Noch 10 Sekunden!"); buzz(80); } } }, Math.max(0, left - 10000));
   }
 
-  let prevHand = null, drawFx = false;
+  let prevHand = null, drawFx = false, playFrom = null;
+  // someone else played: their card travels from their seat onto the pile
+  function flyFromSeat(pi, el) {
+    const seat = document.querySelector(`#table .seat[data-seat="${pi}"] .sfan`);
+    if (!seat || !el || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const s = seat.getBoundingClientRect(), d = el.getBoundingClientRect();
+    el.style.animation = "none";
+    el.animate([
+      { transform: `translate(${s.left + s.width / 2 - d.left - d.width / 2}px,${s.top + s.height / 2 - d.top - d.height / 2}px) scale(.3) rotate(-25deg)`, opacity: 0.7 },
+      { transform: "none", opacity: 1 }
+    ], { duration: 430, easing: "cubic-bezier(.2,.8,.2,1)" });
+  }
   function flyIn(ids) {
     if (!ids.length || ids.length > 12) return;
     if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -709,6 +735,7 @@
   window.addEventListener("resize", () => { if (V && !$("#game").hidden) { layoutHand(); renderSeats(); } });
 
   function renderHandoff() {
+    $("#hoAvatar").textContent = V.players[V.me].avatar || "";
     $("#hoName").textContent = V.players[V.me].name;
     const others = V.players.filter((_, i) => i !== V.me).map((p) => `${p.name} ${p.count}`).join(" · ");
     $("#hoMeta").textContent = `Du hast ${V.hand.length} Karten. Die anderen: ${others}`;
@@ -722,7 +749,17 @@
       `<li class="${p.i === winner ? "win" : ""}"><span>${esc(p.name)}${p.i === V.me && mode === "online" ? " (du)" : ""}</span><b>${p.score} Pkt.</b></li>`).join("");
   }
 
+  function histHTML() {
+    const h = (V.history || []).slice().reverse();
+    if (!h.length) return "";
+    return `<tr><th>Runde</th><th>Sieger</th><th>Punkte</th></tr>` + h.map((r) => {
+      const p = V.players[r.winner] || { name: "?" };
+      return `<tr><td>${r.round}</td><td>${p.avatar || ""} ${esc(p.name)}</td><td>+${r.pts}</td></tr>`;
+    }).join("");
+  }
   function renderRoundEnd() {
+    $("#reHist").innerHTML = histHTML();
+    $("#reHistWrap").hidden = (V.history || []).length < 2;
     const last = V.last, w = V.players[last.winner];
     const winnerName = mode === "online" && last.winner === V.me ? "Du gewinnst" : `${w.name} gewinnt`;
     $("#reLabel").textContent = last.over ? "Spiel vorbei" : `Runde ${V.round} vorbei`;
@@ -756,14 +793,20 @@
     const list = $("#plist");
     if (!list.contains(document.activeElement)) {
       list.innerHTML = names.map((n, i) =>
-        `<div class="prow"><span class="seat">${i + 1}</span>` +
-        `<input class="field" id="pname-${i}" data-i="${i}" maxlength="18" autocomplete="off" enterkeyhint="next" placeholder="${localBots[i] ? "Computer" : "Spieler"} ${i + 1}" value="${esc(n)}">` +
+        `<div class="prow"><button class="avbtn" type="button" data-av="${i}" aria-label="Avatar für Platz ${i + 1} wechseln">${localBots[i] ? "🤖" : avatarFor(i)}</button>` +
+        `<input class="field" id="pname-${i}" data-i="${i}" maxlength="18" autocomplete="off" enterkeyhint="next" placeholder="${localBots[i] ? G.BOT_NAMES[names.slice(0, i).filter((_, k) => localBots[k] && !names[k].trim()).length] + " (Computer)" : `Spieler ${i + 1}`}" value="${esc(n)}">` +
         `<button class="botbtn" type="button" data-bot="${i}" aria-pressed="${!!localBots[i]}" title="Computer spielt diesen Platz" aria-label="Platz ${i + 1} vom Computer spielen lassen">🤖</button>` +
         (names.length > 2 ? `<button class="rm" type="button" data-rm="${i}" aria-label="Spieler ${i + 1} entfernen">×</button>` : "") +
         `</div>`).join("");
     }
     $("#addPlayer").hidden = names.length >= 10;
+    $("#levelLocalBox").hidden = !names.some((_, i) => localBots[i]);
+    $("#levelLocal").innerHTML = levelButtons(localLevel);
+    $("#myAvatar").textContent = myAvatar;
+    renderLook();
   }
+  const levelButtons = (cur) => Object.entries(G.BOT_LEVELS).map(([k, n]) =>
+    `<button type="button" data-level="${k}" aria-pressed="${k === cur}">${n}</button>`).join("");
 
   function joinUrl() {
     const local = /^(localhost|127\.|\[::1\])/.test(location.hostname);
@@ -785,10 +828,13 @@
     $("#membersLabel").textContent = `Spieler (${R.members.length}/10)`;
     const host = R.you === R.host;
     $("#members").innerHTML = R.members.map((m, i) =>
-      `<li class="${i === R.you ? "me" : ""}"><span class="on${m.online ? "" : " off"}"></span><span class="nm">${m.bot ? "🤖 " : ""}${esc(m.name)}</span>` +
+      `<li class="${i === R.you ? "me" : ""}"><span class="on${m.online ? "" : " off"}"></span>${i === R.you && !m.bot ? `<button class="av" type="button" data-myav="1" title="Avatar wechseln">${m.avatar}</button>` : `<span class="av">${m.avatar || ""}</span>`}<span class="nm">${esc(m.name)}</span>` +
       `${m.bot ? '<span class="tag">Computer</span>' : ""}${i === R.host ? '<span class="tag">Host</span>' : ""}${i === R.you ? '<span class="tag">du</span>' : ""}` +
       `${m.bot && host ? `<button class="rmbot" type="button" data-rmbot="${i}" aria-label="${esc(m.name)} entfernen">×</button>` : ""}</li>`).join("");
     $("#addBot").hidden = !host || R.members.length >= 10;
+    $("#levelLobbyBox").hidden = !R.members.some((m) => m.bot);
+    $("#levelLobby").innerHTML = levelButtons(R.botLevel || "normal");
+    $("#levelLobby").querySelectorAll("button").forEach((b) => { b.disabled = !host; });
     $("#startOnline").hidden = !host;
     $("#startOnline").disabled = R.members.length < 2;
     $("#startOnline").textContent = R.members.length < 2 ? "Warte auf Mitspieler …" : `Spiel starten (${R.members.length} Spieler)`;
@@ -880,7 +926,7 @@
       if (m.view) {
         const v = m.view;
         for (const ev of m.events || []) {
-          if (ev.t === "played") sfx("card");
+          if (ev.t === "played") { sfx("card"); playFrom = ev.pi; }
           if ((ev.t === "drew" || ev.t === "took") && ev.pi === v.me) sfx("draw");
           if ((ev.t === "drew" || ev.t === "took" || ev.t === "penalty") && ev.pi === v.me) drawFx = true;
           ruleEvent(ev, v.players, v.me);
@@ -926,20 +972,22 @@
     const code = $("#joinCode").value.trim();
     if (code.length !== 4) { toast("Der Raum-Code hat 4 Buchstaben."); $("#joinCode").focus(); return; }
     store.del(K.online);
-    wsSend({ t: "join", code, name: n });
+    wsSend({ t: "join", code, name: n, avatar: myAvatar });
   }
   $("#joinBtn").addEventListener("click", join);
   $("#joinCode").addEventListener("keydown", (e) => { if (e.key === "Enter") join(); });
   $("#createBtn").addEventListener("click", () => {
     const n = myName(); if (!n) return;
     store.del(K.online);
-    wsSend({ t: "create", name: n, goal: goalOnline, rules: localRules });
+    wsSend({ t: "create", name: n, goal: goalOnline, rules: localRules, avatar: myAvatar });
   });
 
   $("#plist").addEventListener("input", (e) => { if (e.target.dataset.i != null) { names[+e.target.dataset.i] = e.target.value; store.set(K.names, names); } });
   $("#plist").addEventListener("click", (e) => {
     const b = e.target.closest("[data-rm]");
     if (b) { names.splice(+b.dataset.rm, 1); localBots.splice(+b.dataset.rm, 1); store.set(K.names, names); store.set("passuno.bots", localBots); renderHome(); }
+    const av = e.target.closest("[data-av]");
+    if (av) { const i = +av.dataset.av; if (localBots[i]) return; localAvatars[i] = nextAvatar(avatarFor(i)); store.set("passuno.avatars", localAvatars); renderHome(); }
     const t = e.target.closest("[data-bot]");
     if (t) { const i = +t.dataset.bot; localBots[i] = !localBots[i]; store.set("passuno.bots", localBots); renderHome(); }
   });
@@ -955,8 +1003,8 @@
   });
   $("#startLocal").addEventListener("click", () => {
     if (names.every((_, i) => localBots[i])) { toast("Mindestens ein Mensch muss mitspielen."); return; }
-    L = G.newGame(names.map((n, i) => n.trim() || (localBots[i] ? `Computer ${i + 1}` : `Spieler ${i + 1}`)), goalLocal, Object.assign({}, localRules, { jumpIn: false, turnTimer: false }));
-    L.players.forEach((p, i) => { p.bot = !!localBots[i]; });
+    L = G.newGame(names.map((n, i) => n.trim() || (localBots[i] ? G.BOT_NAMES[names.slice(0, i).filter((_, k) => localBots[k] && !names[k].trim()).length] : `Spieler ${i + 1}`)), goalLocal, Object.assign({}, localRules, { jumpIn: false, turnTimer: false }));
+    L.players.forEach((p, i) => { p.bot = !!localBots[i]; p.avatar = p.bot ? "🤖" : avatarFor(i); });
     mode = "local"; viewer = null; hidden = true;
     if (isBot(L.cur)) { viewer = firstHuman(); hidden = false; }
     store.set(K.local, L); render(); wake();
@@ -1025,6 +1073,9 @@
     scoreList($("#menuScores"), -1);
     const on = activeNames(rules());
     $("#menuRules").textContent = on.length ? `Hausregeln: ${on.join(", ")}.` : "Keine Hausregeln, es gelten die normalen Regeln.";
+    $("#menuHist").innerHTML = V ? histHTML() : "";
+    $("#menuLog").innerHTML = V ? V.log.slice().reverse().map((l) => `<li>${esc(l)}</li>`).join("") : "";
+    renderLook();
     const box = $("#menuActions"); box.innerHTML = "";
     if (mode === "local") {
       box.append(
@@ -1059,6 +1110,60 @@
   });
 
   if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+
+  // ---------- look: table design and card size ----------
+  const TABLES = [["night", "Nacht", "#1a1426"], ["felt", "Filz", "#15372a"], ["ocean", "Ozean", "#15243a"], ["light", "Hell", "#eceff5"]];
+  const SIZES = [["0.85", "Klein"], ["1", "Normal"], ["1.15", "Groß"]];
+  let look = Object.assign({ table: "night", size: "1" }, store.get("passuno.look") || {});
+  function applyLook() {
+    const root = document.documentElement, t = TABLES.find((x) => x[0] === look.table) || TABLES[0];
+    if (t[0] === "night") delete root.dataset.table; else root.dataset.table = t[0];
+    root.style.setProperty("--cs", look.size);
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute("content", t[0] === "light" ? "#eceff5" : getComputedStyle(root).getPropertyValue("--bg").trim() || t[2]);
+  }
+  function renderLook() {
+    const html = `<div class="label">Tisch</div><div class="seg">${TABLES.map(([k, n, c]) =>
+      `<button type="button" data-table="${k}" aria-pressed="${look.table === k}"><span class="swatch" style="background:${c}"></span>${n}</button>`).join("")}</div>` +
+      `<div class="label">Kartengröße</div><div class="seg three">${SIZES.map(([k, n]) =>
+      `<button type="button" data-size="${k}" aria-pressed="${look.size === k}">${n}</button>`).join("")}</div>`;
+    for (const id of ["#lookHome", "#lookMenu"]) if ($(id).innerHTML !== html) $(id).innerHTML = html;
+    $("#lookSum").textContent = `${(TABLES.find((x) => x[0] === look.table) || TABLES[0])[1]} · ${(SIZES.find((x) => x[0] === look.size) || SIZES[1])[1]}`;
+  }
+  for (const id of ["#lookHome", "#lookMenu"]) $(id).addEventListener("click", (e) => {
+    const t = e.target.closest("[data-table]"), z = e.target.closest("[data-size]");
+    if (!t && !z) return;
+    if (t) look.table = t.dataset.table;
+    if (z) look.size = z.dataset.size;
+    store.set("passuno.look", look); applyLook(); renderLook();
+    if (V && !$("#game").hidden) { layoutHand(); renderSeats(); }
+  });
+  applyLook();
+
+  // avatar picker (online) and computer strength
+  $("#myAvatar").addEventListener("click", () => {
+    const g = $("#avatarGrid");
+    g.innerHTML = G.AVATARS.map((a) => `<button type="button" data-pick="${a}" aria-pressed="${a === myAvatar}">${a}</button>`).join("");
+    g.hidden = !g.hidden;
+  });
+  $("#avatarGrid").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-pick]"); if (!b) return;
+    myAvatar = b.dataset.pick; store.set("passuno.avatar", myAvatar);
+    $("#avatarGrid").hidden = true; $("#myAvatar").textContent = myAvatar;
+  });
+  $("#members").addEventListener("click", (e) => {
+    if (!e.target.closest("[data-myav]")) return;
+    myAvatar = nextAvatar(myAvatar); store.set("passuno.avatar", myAvatar);
+    wsSend({ t: "avatar", avatar: myAvatar });
+  });
+  $("#levelLocal").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-level]"); if (!b) return;
+    localLevel = b.dataset.level; store.set("passuno.level", localLevel); renderHome();
+  });
+  $("#levelLobby").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-level]"); if (!b || !R || R.you !== R.host) return;
+    wsSend({ t: "botLevel", level: b.dataset.level });
+  });
 
   // ---------- boot ----------
   // Is there a Pass-Uno server behind this address? Ask twice over HTTP (some ad blockers

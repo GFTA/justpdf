@@ -18,7 +18,9 @@ const SAVE_FILE = path.join(DATA_DIR, "rooms.json");
 const MAX_PLAYERS = 10;
 const MAX_ROOMS = 200;
 const ROOM_TTL = 12 * 3600 * 1000;
-const REACTIONS = ["👍", "😂", "😱", "😡", "🎉", "🙈"];
+const REACTIONS = ["👍", "😂", "😱", "😡", "🎉", "🙈", "Gut gespielt!", "Uff …", "Beeil dich!", "Na warte!"];
+const avatarOf = (a) => (Uno.AVATARS.includes(a) ? a : Uno.AVATARS[crypto.randomInt(Uno.AVATARS.length)]);
+const levelOf = (r) => (Uno.BOT_LEVELS[r.botLevel] ? r.botLevel : "normal");
 const QR_LIB = require.resolve("qrcode-generator/qrcode.js");
 
 const TYPES = {
@@ -88,8 +90,9 @@ function online(code) {
 }
 
 // ---------- computer players and the turn clock ----------
-const BOT_NAMES = ["Robo", "Pixel", "Byte", "Turbo", "Nova", "Blitz", "Chip", "Zappy", "Kiwi", "Rocket"];
+const BOT_NAMES = Uno.BOT_NAMES;
 const botTimers = new Map();  // code -> { key, t }
+const forgotUno = new Map();  // code -> Set of UNO windows a bot decided to forget
 const turnTimers = new Map(); // code -> { key, t, ends }
 
 function clearTimer(map, code) { const x = map.get(code); if (x) clearTimeout(x.t); map.delete(code); }
@@ -99,7 +102,8 @@ function clearTimer(map, code) { const x = map.get(code); if (x) clearTimeout(x.
 function schedule(room) {
   const S = room.state, code = room.code;
   if (!S || S.phase === "roundEnd" || !rooms.has(code)) { clearTimer(botTimers, code); clearTimer(turnTimers, code); return; }
-  const botWait = (S.unoWaits || []).find((w) => S.players[w.pi].bot);
+  const forgot = forgotUno.get(code) || new Set();
+  const botWait = (S.unoWaits || []).find((w) => S.players[w.pi].bot && !forgot.has(`${w.pi}:${w.until}`));
   const cur = S.players[S.cur];
   let key = null, delay = 0, pi = -1;
   if (botWait) { key = `uno:${S.round}:${S.turn}:${botWait.pi}`; delay = 500 + Math.random() * 900; pi = botWait.pi; }
@@ -107,6 +111,11 @@ function schedule(room) {
   const old = botTimers.get(code);
   if (!old || old.key !== key) {
     clearTimer(botTimers, code);
+    if (key && botWait && Math.random() > Uno.BOT_UNO[levelOf(room)]) {
+      // this bot forgets to call UNO; the window runs out and it gets the penalty
+      forgotUno.set(code, forgot.add(`${botWait.pi}:${botWait.until}`));
+      return schedule(room);
+    }
     if (key) botTimers.set(code, { key, t: setTimeout(() => { botTimers.delete(code); botMove(room, pi); }, delay) });
   }
   const tkey = `${S.round}:${S.turn}`;
@@ -125,7 +134,7 @@ function schedule(room) {
 function botMove(room, pi) {
   const S = room.state;
   if (!S || !rooms.has(room.code)) return;
-  const a = Uno.suggest(Uno.view(S, pi));
+  const a = Uno.suggest(Uno.view(S, pi), levelOf(room));
   if (!a) return schedule(room);
   if (!apply(room, pi, a) && a.t === "play") apply(room, pi, { t: S.phase === "drawn" ? "keep" : "draw" });
 }
@@ -147,11 +156,11 @@ function broadcast(room, events) {
   if (!on.has(room.host)) { const h = room.members.findIndex((m, i) => !m.bot && on.has(i)); if (h >= 0) room.host = h; }
   schedule(room);
   const clock = turnTimers.get(room.code);
-  const members = room.members.map((m, i) => ({ name: m.name, online: !!m.bot || on.has(i), bot: !!m.bot }));
+  const members = room.members.map((m, i) => ({ name: m.name, online: !!m.bot || on.has(i), bot: !!m.bot, avatar: m.bot && !m.standIn ? "🤖" : m.avatar || "" }));
   for (const ws of sockets.get(room.code) || []) {
     if (ws.pid == null) continue;
     send(ws, {
-      t: "room", code: room.code, you: ws.pid, host: room.host, goal: room.goal, rules: roomRules(room), members,
+      t: "room", code: room.code, you: ws.pid, host: room.host, goal: room.goal, rules: roomRules(room), botLevel: levelOf(room), members,
       turnLeft: clock ? Math.max(0, clock.ends - Date.now()) : 0,
       view: room.state ? Uno.view(room.state, ws.pid) : null, events: events || []
     });
@@ -192,7 +201,7 @@ function handle(ws, msg) {
       if (!name) return err("Bitte gib deinen Namen ein.");
       if (rooms.size >= MAX_ROOMS) return err("Der Server ist voll. Versuch es später nochmal.");
       const goal = [0, 250, 500].includes(+msg.goal) ? +msg.goal : 500;
-      const r = { code: newCode(), host: 0, goal, rules: Uno.normRules(msg.rules), members: [{ name, secret: crypto.randomUUID() }], state: null, touched: Date.now() };
+      const r = { code: newCode(), host: 0, goal, rules: Uno.normRules(msg.rules), members: [{ name, secret: crypto.randomUUID(), avatar: avatarOf(msg.avatar) }], state: null, touched: Date.now() };
       rooms.set(r.code, r);
       attach(ws, r, 0);
       broadcast(r); saveRooms();
@@ -211,7 +220,7 @@ function handle(ws, msg) {
       }
       if (r.state) return err("Das Spiel läuft schon. Neue Spieler können erst in einem neuen Raum mitmachen.");
       if (r.members.length >= MAX_PLAYERS) return err("Der Raum ist voll (10 Spieler).");
-      r.members.push({ name, secret: crypto.randomUUID() });
+      r.members.push({ name, secret: crypto.randomUUID(), avatar: avatarOf(msg.avatar) });
       attach(ws, r, r.members.length - 1);
       broadcast(r); saveRooms();
       return;
@@ -245,7 +254,7 @@ function handle(ws, msg) {
       if (room.state) return;
       if (room.members.length < 2) return err("Es braucht mindestens 2 Spieler.");
       room.state = Uno.newGame(room.members.map((m) => m.name), room.goal, roomRules(room));
-      room.members.forEach((m, i) => { room.state.players[i].bot = !!m.bot; });
+      room.members.forEach((m, i) => { room.state.players[i].bot = !!m.bot; room.state.players[i].avatar = m.bot ? "🤖" : m.avatar; });
       broadcast(room); saveRooms();
       return;
     }
@@ -278,6 +287,18 @@ function handle(ws, msg) {
       if (now - (ws.lastReact || 0) < 1000) return;
       ws.lastReact = now;
       for (const s of sockets.get(room.code) || []) if (s.pid != null) send(s, { t: "react", pi: ws.pid, e: msg.e });
+      return;
+    }
+    case "botLevel": {
+      if (!room || ws.pid !== room.host || !Uno.BOT_LEVELS[msg.level]) return;
+      room.botLevel = msg.level;
+      broadcast(room); saveRooms();
+      return;
+    }
+    case "avatar": { // change your own avatar in the waiting room
+      if (!room || room.state || !Uno.AVATARS.includes(msg.avatar)) return;
+      room.members[ws.pid].avatar = msg.avatar;
+      broadcast(room); saveRooms();
       return;
     }
     case "addBot": { // host adds a computer player in the waiting room
