@@ -31,6 +31,20 @@ docker compose up -d --build
 Der Container startet nach einem Neustart des Mini-PCs von selbst
 (`restart: unless-stopped`). Aktualisieren: `git pull && docker compose up -d --build`.
 
+### Über einen Cloudflare-Tunnel (von überall erreichbar, mit HTTPS)
+
+Läuft auf dem Mini-PC schon ein `cloudflared`-Container, hängt sich Pass-Uno in dessen
+Docker-Netzwerk. Im Tunnel zeigt dann ein Hostname (hier `uno.cool-kidz.net`) auf
+`http://pass-uno:8080`.
+
+```sh
+echo "TUNNEL_NETWORK=<netzwerk-von-cloudflared>" > .env   # docker inspect cloudflared
+docker compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d --build
+```
+
+Ist Port 8080 auf dem Mini-PC schon belegt, zusätzlich `UNO_PORT=8088` in `.env`
+eintragen (betrifft nur den Zugriff direkt im WLAN).
+
 ### Ohne Docker (Linux mit systemd)
 
 ```sh

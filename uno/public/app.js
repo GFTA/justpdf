@@ -367,6 +367,8 @@
     const url = joinUrl();
     $("#joinUrl").textContent = url;
     if (qrFor !== url) { qrFor = url; drawQr(url); }
+    const lan = /^http:\/\/(\d+\.){3}\d+[:/]/.test(url);
+    $("#joinHint").textContent = "Die anderen scannen den QR-Code oder öffnen den Link und geben den Code ein." + (lan ? " Alle müssen im selben WLAN sein." : "");
     const on = R.members.filter((m) => m.online).length;
     $("#membersLabel").textContent = `Spieler (${R.members.length}/10)`;
     $("#members").innerHTML = R.members.map((m, i) =>

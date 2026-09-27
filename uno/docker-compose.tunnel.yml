@@ -1,0 +1,14 @@
+# Adds Pass-Uno to the Docker network of an existing cloudflared container, so the
+# tunnel can reach it as http://pass-uno:8080. Put TUNNEL_NETWORK=<network> into .env
+# and start with:
+#   docker compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d --build
+services:
+  pass-uno:
+    networks:
+      - default
+      - tunnel
+
+networks:
+  tunnel:
+    external: true
+    name: ${TUNNEL_NETWORK:?TUNNEL_NETWORK in .env setzen}
